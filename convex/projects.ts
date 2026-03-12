@@ -184,7 +184,7 @@ export const findDuplicateProjects = query({
     for (const dup of duplicates) {
       for (const proj of dup.projects) {
         const tasks = await ctx.db
-          .query("tasks")
+          .query("inProgressTasks")
           .withIndex("by_project", (q) => q.eq("projectId", proj.id))
           .collect();
         proj.taskCount = tasks.length;
@@ -223,7 +223,7 @@ export const mergeDuplicateProjects = mutation({
 
       // Migrate all tasks from archive project to keep project
       const tasks = await ctx.db
-        .query("tasks")
+        .query("inProgressTasks")
         .withIndex("by_project", (q) => q.eq("projectId", archiveId))
         .collect();
 
@@ -557,7 +557,7 @@ export const deleteProject = mutation({
       for (const sub of subprojects) {
         // Delete all tasks for this subproject
         const subTasks = await ctx.db
-          .query("tasks")
+          .query("inProgressTasks")
           .withIndex("by_project", (q) => q.eq("projectId", sub._id))
           .collect();
         
@@ -574,7 +574,7 @@ export const deleteProject = mutation({
 
     // Delete all tasks for this project
     const tasks = await ctx.db
-      .query("tasks")
+      .query("inProgressTasks")
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
       .collect();
     
@@ -616,8 +616,8 @@ export const getProjectTree = query({
 
     // Get task counts for each
     const parentTasks = await ctx.db
-      .query("tasks")
-      .withIndex("by_project_completion", (q) =>
+      .query("inProgressTasks")
+      .withIndex("by_project", (q) =>
         q.eq("projectId", args.projectId).eq("completed", false)
       )
       .collect();
@@ -625,8 +625,8 @@ export const getProjectTree = query({
     const subprojectData = await Promise.all(
       subprojects.map(async (sub) => {
         const tasks = await ctx.db
-          .query("tasks")
-          .withIndex("by_project_completion", (q) =>
+          .query("inProgressTasks")
+          .withIndex("by_project", (q) =>
             q.eq("projectId", sub._id).eq("completed", false)
           )
           .collect();

@@ -29,8 +29,8 @@ export const getProjectFamilyPendingTasks = query({
 
     // Get parent's own tasks
     const parentTasks = await ctx.db
-      .query("tasks")
-      .withIndex("by_project_completion", (q) =>
+      .query("inProgressTasks")
+      .withIndex("by_project", (q) =>
         q.eq("projectId", args.projectId).eq("completed", false)
       )
       .order("desc")
@@ -47,8 +47,8 @@ export const getProjectFamilyPendingTasks = query({
     const subprojectTasks = await Promise.all(
       subprojects.map(async (sub) => {
         const tasks = await ctx.db
-          .query("tasks")
-          .withIndex("by_project_completion", (q) =>
+          .query("inProgressTasks")
+          .withIndex("by_project", (q) =>
             q.eq("projectId", sub._id).eq("completed", false)
           )
           .order("desc")
@@ -131,7 +131,7 @@ export const getCompletedTodayCount = query({
     const startOfDayTimestamp = startOfDay.getTime();
 
     const completedTasks = await ctx.db
-      .query("tasks")
+      .query("inProgressTasks")
       .withIndex("by_completion", (q) => q.eq("completed", true))
       .collect();
 
@@ -174,8 +174,8 @@ export const getEveningSummary = query({
     for (const parent of parentProjects) {
       // Get parent's tasks
       const parentTasks = await ctx.db
-        .query("tasks")
-        .withIndex("by_project_completion", (q) =>
+        .query("inProgressTasks")
+        .withIndex("by_project", (q) =>
           q.eq("projectId", parent._id).eq("completed", false)
         )
         .order("desc")
@@ -191,8 +191,8 @@ export const getEveningSummary = query({
       const subprojectData = [];
       for (const sub of subprojects) {
         const tasks = await ctx.db
-          .query("tasks")
-          .withIndex("by_project_completion", (q) =>
+          .query("inProgressTasks")
+          .withIndex("by_project", (q) =>
             q.eq("projectId", sub._id).eq("completed", false)
           )
           .order("desc")
@@ -529,7 +529,7 @@ export const getEveningReport = query({
       .collect();
 
     const completedTasks = await ctx.db
-      .query("tasks")
+      .query("inProgressTasks")
       .withIndex("by_completion", (q) => q.eq("completed", true))
       .collect();
 

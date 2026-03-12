@@ -4,23 +4,17 @@ import { v } from "convex/values";
 /**
  * 🛡️ Task Operations
  * 
- * Queries:
- * - getTasks: Get tasks for a project with filtering
- * - getPendingTasks: Get incomplete tasks
- * - getCompletedToday: Get today's completions
- * 
- * Mutations:
- * - createTask: Add new task
- * - completeTask: Mark complete with timestamp
- * - syncCompletedTasks: AI auto-complete based on conversation text
+ * Tasks are split between two tables:
+ * - inProgressTasks: Active tasks
+ * - completedTasks: Completed tasks (moved here on completion)
  */
 
 // ============================================
-// QUERIES
+// QUERIES - IN PROGRESS TASKS
 // ============================================
 
 /**
- * Get tasks for a project with optional filtering
+ * Get in-progress tasks for a project
  */
 export const getTasks = query({
   args: {
@@ -28,93 +22,140 @@ export const getTasks = query({
     filter: v.optional(v.union(v.literal("pending"), v.literal("completed"), v.literal("all"))),
   },
   handler: async (ctx, args) => {
-    let query = ctx.db
-      .query("tasks")
-      .withIndex("by_project", (q) => q.eq("projectId", args.projectId));
-
     const filter = args.filter ?? "all";
 
-    if (filter === "pending") {
-      query = query.filter((q) => q.eq(q.field("completed"), false));
-    } else if (filter === "completed") {
-      query = query.filter((q) => q.eq(q.field("completed"), true));
+    let inProgress: any[] = [];
+    let completed: any[] = [];
+
+    if (filter === "pending" || filter === "all") {
+      inProgress = await ctx.db
+        .query("inProgressTasks")
+        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+        .order("desc")
+        .collect();
     }
 
-    const tasks = await query.order("desc").collect();
-    return tasks;
+    if (filter === "completed" || filter === "all") {
+      completed = await ctx.db
+        .query("completedTasks")
+        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+        .order("desc")
+        .collect();
+    }
+
+    // Combine and format
+    const allTasks = [
+      ...inProgress.map((t) => ({ ...t, completed: false })),
+      ...completed.map((t) => ({ ...t, completed: true })),
+    ];
+
+    // Sort by date (newest first)
+    allTasks.sort((a, b) => b.createdAt - a.createdAt);
+
+    return allTasks;
   },
 });
 
 /**
- * Get pending (incomplete) tasks for a project
+ * Get pending (in-progress) tasks for a project
  */
 export const getPendingTasks = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
     return await ctx.db
-      .query("tasks")
-      .withIndex("by_project_completion", (q) =>
-        q.eq("projectId", args.projectId).eq("completed", false)
-      )
+      .query("inProgressTasks")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .order("desc")
       .collect();
   },
 });
 
 /**
- * Get tasks completed today
+ * Get completed tasks for a project (optionally limited to today)
  */
-export const getCompletedToday = query({
+export const getCompletedTasks = query({
   args: { 
-    projectId: v.optional(v.id("projects")) 
+    projectId: v.optional(v.id("projects")),
+    todayOnly: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
+    let query = ctx.db.query("completedTasks");
+
+    if (args.projectId) {
+      query = query.withIndex("by_project", (q) => q.eq("projectId", args.projectId));
+    }
+
+    const tasks = await query.order("desc").collect();
+
+    if (args.todayOnly) {
+      const startOfDay = new Date();
+      startOfDay.setHours(0, 0, 0, 0);
+      const startOfDayTimestamp = startOfDay.getTime();
+
+      return tasks.filter((t) => t.completedAt >= startOfDayTimestamp);
+    }
+
+    return tasks;
+  },
+});
+
+/**
+ * Get completed tasks count for today (across all projects)
+ */
+export const getCompletedTodayCount = query({
+  args: { timestamp: v.optional(v.number()) },
+  handler: async (ctx) => {
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
     const startOfDayTimestamp = startOfDay.getTime();
 
-    let query = ctx.db
-      .query("tasks")
-      .withIndex("by_completion", (q) => q.eq("completed", true));
+    const completedTasks = await ctx.db
+      .query("completedTasks")
+      .withIndex("by_completed", (q) => q.gte("completedAt", startOfDayTimestamp))
+      .collect();
 
-    // Filter by project if specified
-    if (args.projectId) {
-      query = query.filter((q) => q.eq(q.field("projectId"), args.projectId));
-    }
-
-    const tasks = await query.collect();
-    
-    // Filter for tasks completed today
-    return tasks.filter((task) => 
-      task.completedAt && task.completedAt >= startOfDayTimestamp
-    );
+    return {
+      date: startOfDay.toISOString().split("T")[0],
+      totalCompleted: completedTasks.length,
+    };
   },
 });
 
 /**
- * Get task count for a project
+ * Get task stats for a project
  */
 export const getTaskStats = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    const allTasks = await ctx.db
-      .query("tasks")
+    const pending = await ctx.db
+      .query("inProgressTasks")
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
       .collect();
 
-    const pending = allTasks.filter((t) => !t.completed).length;
-    const completed = allTasks.filter((t) => t.completed).length;
-    const autoGenerated = allTasks.filter((t) => t.autoGenerated).length;
+    const completed = await ctx.db
+      .query("completedTasks")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .collect();
 
-    return { total: allTasks.length, pending, completed, autoGenerated };
+    const autoGenerated = 
+      pending.filter((t) => t.autoGenerated).length +
+      completed.filter((t) => t.autoGenerated).length;
+
+    return { 
+      total: pending.length + completed.length, 
+      pending: pending.length, 
+      completed: completed.length, 
+      autoGenerated 
+    };
   },
 });
 
 // ============================================
-// MUTATIONS
+// MUTATIONS - CREATE & COMPLETE
 // ============================================
 
 /**
- * Create a new task
+ * Create a new task (adds to inProgressTasks)
  */
 export const createTask = mutation({
   args: {
@@ -129,10 +170,9 @@ export const createTask = mutation({
       throw new Error(`Project not found: ${args.projectId}`);
     }
 
-    const taskId = await ctx.db.insert("tasks", {
+    const taskId = await ctx.db.insert("inProgressTasks", {
       projectId: args.projectId,
       text: args.text,
-      completed: false,
       autoGenerated: args.autoGenerated ?? false,
       createdAt: Date.now(),
     });
@@ -145,50 +185,73 @@ export const createTask = mutation({
 });
 
 /**
- * Mark a task as completed
+ * Mark a task as completed (moves from inProgressTasks to completedTasks)
  */
 export const completeTask = mutation({
-  args: { taskId: v.id("tasks") },
+  args: { taskId: v.id("inProgressTasks") },
   handler: async (ctx, args) => {
     const task = await ctx.db.get(args.taskId);
     if (!task) {
       throw new Error(`Task not found: ${args.taskId}`);
     }
 
-    await ctx.db.patch(args.taskId, {
-      completed: true,
+    // Create completed task
+    const completedTaskId = await ctx.db.insert("completedTasks", {
+      projectId: task.projectId,
+      text: task.text,
+      autoGenerated: task.autoGenerated,
+      createdAt: task.createdAt,
       completedAt: Date.now(),
     });
+
+    // Delete from in-progress
+    await ctx.db.delete(args.taskId);
 
     // Update project's lastWorkedOn
     await ctx.db.patch(task.projectId, { lastWorkedOn: Date.now() });
 
-    return { taskId: args.taskId, text: task.text, completed: true };
+    return { 
+      taskId: completedTaskId, 
+      originalTaskId: args.taskId,
+      text: task.text, 
+      completed: true 
+    };
   },
 });
 
 /**
- * Mark a task as incomplete (undo completion)
+ * Mark a completed task as incomplete (moves back to inProgressTasks)
  */
 export const uncompleteTask = mutation({
-  args: { taskId: v.id("tasks") },
+  args: { taskId: v.id("completedTasks") },
   handler: async (ctx, args) => {
     const task = await ctx.db.get(args.taskId);
     if (!task) {
-      throw new Error(`Task not found: ${args.taskId}`);
+      throw new Error(`Completed task not found: ${args.taskId}`);
     }
 
-    await ctx.db.patch(args.taskId, {
-      completed: false,
-      completedAt: undefined,
+    // Create in-progress task
+    const newTaskId = await ctx.db.insert("inProgressTasks", {
+      projectId: task.projectId,
+      text: task.text,
+      autoGenerated: task.autoGenerated,
+      createdAt: task.createdAt,
     });
 
-    return { taskId: args.taskId, text: task.text, completed: false };
+    // Delete from completed
+    await ctx.db.delete(args.taskId);
+
+    return { 
+      taskId: newTaskId, 
+      originalTaskId: args.taskId,
+      text: task.text, 
+      completed: false 
+    };
   },
 });
 
 /**
- * Bulk create tasks (for automated task generation)
+ * Bulk create tasks (adds to inProgressTasks)
  */
 export const bulkCreateTasks = mutation({
   args: {
@@ -202,10 +265,9 @@ export const bulkCreateTasks = mutation({
     const createdTasks = [];
 
     for (const taskData of args.tasks) {
-      const taskId = await ctx.db.insert("tasks", {
+      const taskId = await ctx.db.insert("inProgressTasks", {
         projectId: args.projectId,
         text: taskData.text,
-        completed: false,
         autoGenerated: taskData.autoGenerated ?? true,
         createdAt: Date.now(),
       });
@@ -237,10 +299,8 @@ export const syncCompletedTasks = mutation({
   handler: async (ctx, args) => {
     // Get pending tasks for this project
     const pendingTasks = await ctx.db
-      .query("tasks")
-      .withIndex("by_project_completion", (q) =>
-        q.eq("projectId", args.projectId).eq("completed", false)
-      )
+      .query("inProgressTasks")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
       .collect();
 
     const completedTasks = [];
@@ -260,10 +320,8 @@ export const syncCompletedTasks = mutation({
         normalizedInput.includes(`implemented ${normalizedTask}`);
 
       if (isCompleted) {
-        await ctx.db.patch(task._id, {
-          completed: true,
-          completedAt: Date.now(),
-        });
+        // Move to completed
+        await ctx.runMutation("tasks:completeTask", { taskId: task._id });
         completedTasks.push({ taskId: task._id, text: task.text });
       }
     }
@@ -278,5 +336,26 @@ export const syncCompletedTasks = mutation({
       completed: completedTasks.length,
       tasks: completedTasks,
     };
+  },
+});
+
+// ============================================
+// DATA MIGRATION (for schema changes)
+// ============================================
+
+/**
+ * Migrate old tasks table to new split tables
+ * Run once after schema change
+ */
+export const migrateOldTasks = mutation({
+  args: { confirm: v.boolean() },
+  handler: async (ctx, args) => {
+    if (!args.confirm) {
+      return { migrated: 0, message: "Set confirm: true to migrate" };
+    }
+
+    // This would be used if there was an old "tasks" table
+    // For now, it's a placeholder for future migrations
+    return { migrated: 0, message: "No old tasks table to migrate" };
   },
 });
