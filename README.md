@@ -506,22 +506,63 @@ just test-notifications
 
 ## 🚀 Dev → Production Migration
 
-Deploy from development to production:
+### Automatic Migration (Recommended)
+
+One command to migrate everything from dev to production:
 
 ```bash
-# Full migration workflow (type check, test, deploy)
 just migrate-prod
-
-# Or step by step:
-just convex-deploy                    # Deploy to production
-just env-check-prod                   # Check env vars are set
-just prod-test-notifications          # Test in production
 ```
 
-**Important:** After deploying to production:
-1. Set all environment variables in PROD dashboard
-2. Verify crons are registered in Schedules tab
-3. Test notifications work in production
+This will automatically:
+1. ✅ Run type checks
+2. ✅ Generate Convex code
+3. ✅ **Copy all environment variables from DEV to PROD**
+4. ✅ Deploy to production
+5. ✅ Verify crons are registered
+
+### Manual Step-by-Step
+
+If you prefer manual control:
+
+```bash
+# 1. Copy only environment variables
+just migrate-env-only
+
+# 2. Deploy to production
+just convex-deploy
+
+# 3. Verify env vars were copied
+just env-check-prod
+
+# 4. Test notifications
+just prod-test-notifications
+```
+
+### Environment Variables Copied
+
+The migration automatically copies these from DEV to PROD:
+
+| Variable | Purpose |
+|----------|---------|
+| `DISCORD_WEBHOOK` | Discord notifications |
+| `USER_DISCORD_ID` | Discord @mentions (optional) |
+| `BOT_TOKEN` | Telegram bot token |
+| `GROUP_ID` | Telegram group ID |
+| `USER_TELEGRAM_ID` | Telegram priority DMs (optional) |
+
+### Verify Migration Success
+
+```bash
+# Compare DEV vs PROD env vars
+just env-list-all
+
+# Check only PROD env vars
+just env-check-prod
+
+# Open production dashboard
+just dashboard-prod
+```
 
 ## 📝 Output Format
 
