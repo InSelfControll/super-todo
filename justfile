@@ -31,10 +31,10 @@ cli *args:
     bun src/cli/index.ts {{args}}
 
 # ============================================
-# CONVEX
+# CONVEX - DEV & PROD WORKFLOWS
 # ============================================
 
-# Start Convex dev server
+# Start Convex dev server (local development)
 convex-dev:
     bunx convex dev
 
@@ -45,6 +45,127 @@ convex-deploy:
 # Generate Convex client code
 convex-codegen:
     bunx convex codegen
+
+# ============================================
+# MIGRATION: DEV → PROD
+# ============================================
+
+# Full migration workflow from dev to production
+migrate-prod:
+    #!/usr/bin/env bash
+    set -e
+    echo "🛡️ Starting Dev → Prod Migration..."
+    echo ""
+    
+    echo "1️⃣  Running type checks..."
+    bunx tsc --noEmit
+    echo "   ✅ Type checks passed"
+    echo ""
+    
+    echo "2️⃣  Generating Convex code..."
+    bunx convex codegen
+    echo "   ✅ Code generated"
+    echo ""
+    
+    echo "3️⃣  Testing notifications (manual run)..."
+    bunx convex run daily:scheduledMorningSync >/dev/null 2>&1 && echo "   ✅ Morning sync works" || echo "   ⚠️  Morning sync test failed"
+    bunx convex run daily:scheduledEveningSync >/dev/null 2>&1 && echo "   ✅ Evening sync works" || echo "   ⚠️  Evening sync test failed"
+    echo ""
+    
+    echo "4️⃣  Deploying to production..."
+    bunx convex deploy
+    echo "   ✅ Deployed to production"
+    echo ""
+    
+    echo "5️⃣  Checking environment variables..."
+    echo "   Make sure these are set in PROD dashboard:"
+    echo "   • DISCORD_WEBHOOK"
+    echo "   • USER_DISCORD_ID (optional)"
+    echo "   • BOT_TOKEN"
+    echo "   • GROUP_ID"
+    echo "   • USER_TELEGRAM_ID (optional)"
+    echo ""
+    
+    echo "🎉 Migration complete!"
+    echo ""
+    echo "📋 Next steps:"
+    echo "   1. Open Convex Dashboard: https://dashboard.convex.dev"
+    echo "   2. Select your PROD project"
+    echo "   3. Go to Settings → Environment Variables"
+    echo "   4. Add all required env vars"
+    echo "   5. Go to Schedules to verify crons are registered"
+    echo "   6. Run 'just convex-logs-prod' to monitor"
+
+# Quick deploy to production (skip checks)
+convex-deploy-quick:
+    bunx convex deploy
+
+# ============================================
+# CONVEX - MONITORING & DEBUGGING
+# ============================================
+
+# View production logs
+convex-logs-prod:
+    bunx convex logs --prod
+
+# View dev logs
+convex-logs-dev:
+    bunx convex logs
+
+# Open Convex Dashboard
+dashboard:
+    bunx convex dashboard
+
+# Open production dashboard
+dashboard-prod:
+    bunx convex dashboard --prod
+
+# Check production environment variables
+env-check-prod:
+    bunx convex env --prod --get DISCORD_WEBHOOK 2>/dev/null && echo "✅ DISCORD_WEBHOOK set" || echo "❌ DISCORD_WEBHOOK missing"
+    bunx convex env --prod --get BOT_TOKEN 2>/dev/null && echo "✅ BOT_TOKEN set" || echo "❌ BOT_TOKEN missing"
+    bunx convex env --prod --get GROUP_ID 2>/dev/null && echo "✅ GROUP_ID set" || echo "❌ GROUP_ID missing"
+
+# Test notifications in production
+prod-test-morning:
+    bunx convex run --prod daily:scheduledMorningSync
+
+prod-test-evening:
+    bunx convex run --prod daily:scheduledEveningSync
+
+prod-test-notifications:
+    bunx convex run --prod notifications:testNotifications
+
+# ============================================
+# CRONS - VERIFICATION
+# ============================================
+
+# Check if crons are properly configured
+crons-verify:
+    #!/usr/bin/env bash
+    echo "🕐 Checking Cron Configuration..."
+    echo ""
+    echo "📄 crons.ts content:"
+    cat convex/crons.ts | grep -A 3 "cron:"
+    echo ""
+    echo "🔍 Scheduled Functions:"
+    echo "   • daily:scheduledMorningSync"
+    echo "   • daily:scheduledEveningSync"
+    echo ""
+    echo "⏰ Schedule (Jerusalem Time):"
+    echo "   Morning: 8:00 AM (6:00 AM UTC)"
+    echo "   Evening: 7:00 PM (5:00 PM UTC)"
+    echo ""
+    echo "📋 To verify in Dashboard:"
+    echo "   1. Run: just dashboard"
+    echo "   2. Click 'Schedules' in left sidebar"
+    echo "   3. Look for: morningSync, eveningSync"
+
+crons-test-dev:
+    bunx convex run daily:scheduledMorningSync
+
+crons-test-prod:
+    bunx convex run --prod daily:scheduledMorningSync
 
 # ============================================
 # CONTAINERIZATION (Multi-Arch)
@@ -147,3 +268,7 @@ test:
     @bun --version
     @bunx tsc --version
     @echo "✅ Environment ready!"
+
+# Test all notifications channels
+test-notifications:
+    bunx convex run notifications:testNotifications

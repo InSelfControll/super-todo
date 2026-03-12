@@ -459,6 +459,15 @@ Run manually for a daily completion summary:
 
 ## ⏰ Setting Up Scheduled Notifications
 
+Cron jobs are automatically configured via `convex/crons.ts`. They run at:
+
+| Schedule | Jerusalem Time | UTC (Winter) | Function |
+|----------|----------------|--------------|----------|
+| 🌅 Morning | 8:00 AM | `0 6 * * *` | `daily:scheduledMorningSync` |
+| 🌆 Evening | 7:00 PM | `0 17 * * *` | `daily:scheduledEveningSync` |
+
+> 🌍 **Timezone Note:** Israel is UTC+2 (winter) / UTC+3 (summer). Adjust cron in `convex/crons.ts` by 1 hour when daylight saving changes (March/October).
+
 ### 1. Set Environment Variables (Convex Dashboard)
 
 Go to [Convex Dashboard](https://dashboard.convex.dev) → Your Project → Settings → Environment Variables:
@@ -471,29 +480,48 @@ GROUP_ID=-1001234567890                 # Your group ID
 USER_TELEGRAM_ID=123456789              # For priority DMs
 ```
 
-### 2. Create Scheduled Functions
+### 2. Verify Crons Are Registered
 
-In Convex Dashboard → **Schedules** → **New Schedule**:
+After deploying, crons are automatically registered. To verify:
 
-| Schedule | Function | Cron | Jerusalem Time |
-|----------|----------|------|----------------|
-| Morning | `daily:scheduledMorningSync` | `0 6 * * *` | 8:00 AM |
-| Evening | `daily:scheduledEveningSync` | `0 17 * * *` | 7:00 PM |
+```bash
+# Check crons configuration
+just crons-verify
 
-> 🌍 **Timezone Note:** Israel is UTC+2 (winter) / UTC+3 (summer). 
-> Adjust cron by 1 hour when daylight saving changes (March/October).
+# Open dashboard to see registered schedules
+just dashboard
+# Then click "Schedules" in the left sidebar
+```
 
 ### 3. Test Notifications
 
 ```bash
+# Test morning sync manually
+just crons-test-dev        # Dev environment
+just crons-test-prod       # Production
+
 # Test all notification channels
-bunx convex run notifications:testNotifications
+just test-notifications
 ```
 
-Or via the MCP tool:
+## 🚀 Dev → Production Migration
+
+Deploy from development to production:
+
+```bash
+# Full migration workflow (type check, test, deploy)
+just migrate-prod
+
+# Or step by step:
+just convex-deploy                    # Deploy to production
+just env-check-prod                   # Check env vars are set
+just prod-test-notifications          # Test in production
 ```
-test_notifications
-```
+
+**Important:** After deploying to production:
+1. Set all environment variables in PROD dashboard
+2. Verify crons are registered in Schedules tab
+3. Test notifications work in production
 
 ## 📝 Output Format
 
@@ -533,6 +561,49 @@ These must be set in Convex Dashboard → Settings → Environment Variables:
 > 💡 **Why two places?** The MCP server and CLI run locally and need `CONVEX_URL`. 
 > But scheduled notifications (morning/evening reports) run on Convex servers 
 > and read webhooks from the dashboard env vars.
+
+## 🐛 Troubleshooting
+
+### Cron Jobs Not Running
+
+**Problem:** Notifications not sending at scheduled times.
+
+**Checklist:**
+
+1. **Verify crons.ts exists:**
+   ```bash
+   cat convex/crons.ts
+   ```
+
+2. **Check Convex Dashboard:**
+   - Go to https://dashboard.convex.dev
+   - Select your project
+   - Click **"Schedules"** in left sidebar
+   - You should see `morningSync` and `eveningSync`
+
+3. **Test manually:**
+   ```bash
+   just crons-test-dev     # Should send notification immediately
+   ```
+
+4. **Check environment variables:**
+   ```bash
+   just env-check-prod     # For production
+   ```
+
+5. **Check logs:**
+   ```bash
+   just convex-logs-prod   # See if crons are triggering
+   ```
+
+**Common Issues:**
+
+| Issue | Fix |
+|-------|-----|
+| No Schedules tab in dashboard | Crons auto-register on deploy. Run `just convex-deploy` |
+| Cron runs but no notification | Check env vars in dashboard (DISCORD_WEBHOOK, BOT_TOKEN) |
+| Wrong timezone | Update `convex/crons.ts` cron expression |
+| Prod not working but dev works | Set env vars in PROD dashboard separately |
 
 ## 🐳 Docker Details
 
