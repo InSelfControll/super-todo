@@ -217,6 +217,42 @@ fix-duplicates-prod:
     fi
 
 # ============================================
+# PROJECT DELETION (⚠️ PERMANENT)
+# ============================================
+
+# Delete a project and all its tasks (DEV)
+# Usage: just delete-project-dev <project-id>
+delete-project-dev project-id:
+    #!/usr/bin/env bash
+    echo "⚠️  ⚠️  ⚠️  THIS WILL PERMANENTLY DELETE THE PROJECT AND ALL TASKS!"
+    echo "Project ID: {{project-id}}"
+    echo ""
+    read -p "Type 'DELETE' to confirm: " confirm
+    if [ "$confirm" = "DELETE" ]; then
+        echo ""
+        echo "🗑️  Deleting project and all related tasks..."
+        bunx convex run projects:deleteProject '{"projectId": "{{project-id}}", "confirm": true}'
+    else
+        echo "Cancelled"
+    fi
+
+# Delete a project and all its tasks (PROD)
+# Usage: just delete-project-prod <project-id>
+delete-project-prod project-id:
+    #!/usr/bin/env bash
+    echo "⚠️  ⚠️  ⚠️  THIS WILL PERMANENTLY DELETE THE PROJECT AND ALL TASKS IN PRODUCTION!"
+    echo "Project ID: {{project-id}}"
+    echo ""
+    read -p "Type 'DELETE PRODUCTION' to confirm: " confirm
+    if [ "$confirm" = "DELETE PRODUCTION" ]; then
+        echo ""
+        echo "🗑️  Deleting project and all related tasks from PROD..."
+        bunx convex run --prod projects:deleteProject '{"projectId": "{{project-id}}", "confirm": true}'
+    else
+        echo "Cancelled"
+    fi
+
+# ============================================
 # CONVEX - MONITORING & DEBUGGING
 # ============================================
 

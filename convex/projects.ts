@@ -526,6 +526,80 @@ export const reactivateProject = mutation({
 });
 
 /**
+ * Permanently delete a project and all its tasks
+ * Also deletes all subprojects and their tasks if parent
+ */
+export const deleteProject = mutation({
+  args: { 
+    projectId: v.id("projects"),
+    confirm: v.boolean(), // safety check
+  },
+  handler: async (ctx, args) => {
+    if (!args.confirm) {
+      throw new Error("Must set confirm: true to permanently delete project");
+    }
+
+    const project = await ctx.db.get(args.projectId);
+    if (!project) {
+      throw new Error(`Project not found: ${args.projectId}`);
+    }
+
+    let deletedTasks = 0;
+    let deletedSubprojects = 0;
+
+    // If this is a parent project, delete all subprojects and their tasks
+    if (!project.isSubproject) {
+      const subprojects = await ctx.db
+        .query("projects")
+        .withIndex("by_parent", (q) => q.eq("parentProjectId", args.projectId))
+        .collect();
+
+      for (const sub of subprojects) {
+        // Delete all tasks for this subproject
+        const subTasks = await ctx.db
+          .query("tasks")
+          .withIndex("by_project", (q) => q.eq("projectId", sub._id))
+          .collect();
+        
+        for (const task of subTasks) {
+          await ctx.db.delete(task._id);
+          deletedTasks++;
+        }
+
+        // Delete the subproject
+        await ctx.db.delete(sub._id);
+        deletedSubprojects++;
+      }
+    }
+
+    // Delete all tasks for this project
+    const tasks = await ctx.db
+      .query("tasks")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    
+    for (const task of tasks) {
+      await ctx.db.delete(task._id);
+      deletedTasks++;
+    }
+
+    // Delete the project itself
+    await ctx.db.delete(args.projectId);
+
+    return {
+      deletedProject: {
+        id: args.projectId,
+        name: project.name,
+        wasSubproject: project.isSubproject,
+      },
+      deletedTasks,
+      deletedSubprojects,
+      totalDeleted: 1 + deletedSubprojects + deletedTasks,
+    };
+  },
+});
+
+/**
  * Get project tree (parent with all subprojects and their task counts)
  */
 export const getProjectTree = query({
