@@ -253,13 +253,16 @@ export const mergeDuplicateProjects = mutation({
 });
 
 /**
- * Auto-fix all duplicate projects - keeps "important" over "hobbies"
+ * Auto-fix all duplicate projects - keeps the one with most tasks
+ * If tied, prefers "important" over "hobbies"
  */
 export const autoFixDuplicateProjects = mutation({
   args: {
     dryRun: v.optional(v.boolean()), // if true, only shows what would be done
+    preferImportant: v.optional(v.boolean()), // if true, prioritize important even with fewer tasks
   },
   handler: async (ctx, args) => {
+    const preferImportant = args.preferImportant ?? false;
     const { duplicates } = await ctx.runQuery(
       // @ts-ignore - internal query
       "projects:findDuplicateProjects",
@@ -269,10 +272,17 @@ export const autoFixDuplicateProjects = mutation({
     const results = [];
 
     for (const dup of duplicates) {
-      // Sort projects: important first, then by task count
+      // Sort projects: by task count first, then by group preference
       const sorted = [...dup.projects].sort((a, b) => {
-        if (a.group === "important" && b.group !== "important") return -1;
-        if (a.group !== "important" && b.group === "important") return 1;
+        // If task counts are significantly different (more than 5), prefer the one with more tasks
+        if (Math.abs(b.taskCount - a.taskCount) > 5) {
+          return b.taskCount - a.taskCount;
+        }
+        // If counts are close, use group preference if enabled
+        if (preferImportant) {
+          if (a.group === "important" && b.group !== "important") return -1;
+          if (a.group !== "important" && b.group === "important") return 1;
+        }
         return b.taskCount - a.taskCount;
       });
 
@@ -282,17 +292,23 @@ export const autoFixDuplicateProjects = mutation({
       if (args.dryRun) {
         results.push({
           action: "would_merge",
-          keep: { id: keep.id, name: keep.name, group: keep.group },
-          archive: archive.map((p) => ({ id: p.id, name: p.name, group: p.group })),
+          keep: { id: keep.id, name: keep.name, group: keep.group, taskCount: keep.taskCount },
+          archive: archive.map((p) => ({ id: p.id, name: p.name, group: p.group, taskCount: p.taskCount })),
           reason: `"${keep.name}" kept as ${keep.group} (${keep.taskCount} tasks)`,
         });
       } else {
+        // If we're keeping a "hobbies" project but there's an "important" one, upgrade it
+        if (keep.group === "hobbies" && archive.some((p) => p.group === "important")) {
+          await ctx.db.patch(keep.id, { group: "important" });
+        }
+        
         const result = await ctx.runMutation("projects:mergeDuplicateProjects", {
           keepProjectId: keep.id,
           archiveProjectIds: archive.map((p) => p.id),
         });
         results.push({
           action: "merged",
+          upgradedToImportant: keep.group === "hobbies" && archive.some((p) => p.group === "important"),
           ...result,
         });
       }
