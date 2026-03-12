@@ -642,16 +642,23 @@ just migrate-data-only    # Copy data only
 
 **Checklist:**
 
-1. **Verify crons.ts exists:**
+1. **Verify crons.ts exists and uses correct API:**
    ```bash
    cat convex/crons.ts
+   ```
+   
+   Should use `crons.cron()` method:
+   ```typescript
+   const crons = cronJobs();
+   crons.cron("morning-sync", "0 6 * * *", internal.daily.scheduledMorningSync, {});
+   export default crons;
    ```
 
 2. **Check Convex Dashboard:**
    - Go to https://dashboard.convex.dev
    - Select your project
    - Click **"Schedules"** in left sidebar
-   - You should see `morningSync` and `eveningSync`
+   - You should see `morning-sync` and `evening-sync`
 
 3. **Test manually:**
    ```bash
@@ -676,6 +683,7 @@ just migrate-data-only    # Copy data only
 | Cron runs but no notification | Check env vars in dashboard (DISCORD_WEBHOOK, BOT_TOKEN) |
 | Wrong timezone | Update `convex/crons.ts` cron expression |
 | Prod not working but dev works | Set env vars in PROD dashboard separately |
+| `internal is not defined` error | Make sure to import `internal` from `_generated/api` |
 
 ## 🐳 Docker Details
 
