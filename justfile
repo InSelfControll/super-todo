@@ -83,8 +83,9 @@ migrate-prod:
     echo ""
     
     echo "6️⃣  Importing data to PROD..."
-    bunx convex import --prod "$EXPORT_FILE"
-    echo "   ✅ Data imported to PROD"
+    echo "   ⚠️  This will REPLACE existing PROD data with DEV data!"
+    bunx convex import --prod --replace "$EXPORT_FILE"
+    echo "   ✅ Data imported to PROD (replaced existing data)"
     echo ""
     
     echo "7️⃣  Verifying crons are registered..."
@@ -154,8 +155,9 @@ migrate-data-only:
     echo ""
     
     echo "📤 Importing to PROD..."
-    bunx convex import --prod "$EXPORT_FILE"
-    echo "   ✅ Imported to PROD"
+    echo "   ⚠️  This will REPLACE existing PROD data!"
+    bunx convex import --prod --replace "$EXPORT_FILE"
+    echo "   ✅ Imported to PROD (replaced existing data)"
     echo ""
     
     echo "💾 Export file kept: $EXPORT_FILE"
@@ -297,7 +299,7 @@ import-prod file:
     echo "File: {{file}}"
     read -p "Type 'PRODUCTION' to confirm: " confirm
     if [ "$confirm" = "PRODUCTION" ]; then
-        bunx convex import --prod {{file}}
+        bunx convex import --prod --replace {{file}}
     else
         echo "Cancelled"
     fi
