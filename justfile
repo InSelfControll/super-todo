@@ -50,7 +50,7 @@ convex-codegen:
 # MIGRATION: DEV → PROD (FULL AUTOMATIC)
 # ============================================
 
-# Full automatic migration: dev → prod with env var copying
+# Full automatic migration: dev → prod with env var copying and data migration
 migrate-prod:
     #!/usr/bin/env bash
     set -e
@@ -68,43 +68,26 @@ migrate-prod:
     echo ""
     
     echo "3️⃣  Copying environment variables from DEV to PROD..."
-    echo "   Fetching DEV environment variables..."
-    
-    # List of critical env vars to migrate
-    ENV_VARS=(
-        "DISCORD_WEBHOOK"
-        "USER_DISCORD_ID"
-        "BOT_TOKEN"
-        "GROUP_ID"
-        "USER_TELEGRAM_ID"
-    )
-    
-    MIGRATED_COUNT=0
-    SKIPPED_COUNT=0
-    
-    for VAR in "${ENV_VARS[@]}"; do
-        DEV_VALUE=$(bunx convex env get "$VAR" 2>/dev/null || echo "")
-        if [ -n "$DEV_VALUE" ]; then
-            echo "   📝 Copying $VAR..."
-            echo "$DEV_VALUE" | bunx convex env --prod set "$VAR" -
-            ((MIGRATED_COUNT++))
-        else
-            echo "   ⚠️  $VAR not set in DEV, skipping"
-            ((SKIPPED_COUNT++))
-        fi
-    done
-    
-    echo ""
-    echo "   ✅ Migrated $MIGRATED_COUNT env vars to PROD"
-    echo "   ⚠️  Skipped $SKIPPED_COUNT env vars (not set in DEV)"
+    just migrate-env-only
     echo ""
     
-    echo "4️⃣  Deploying to production..."
+    echo "4️⃣  Exporting data from DEV..."
+    EXPORT_FILE="convex-export-$(date +%Y%m%d-%H%M%S).zip"
+    bunx convex export --path "$EXPORT_FILE"
+    echo "   ✅ Exported to $EXPORT_FILE"
+    echo ""
+    
+    echo "5️⃣  Deploying to production..."
     bunx convex deploy
     echo "   ✅ Deployed to production"
     echo ""
     
-    echo "5️⃣  Verifying crons are registered..."
+    echo "6️⃣  Importing data to PROD..."
+    bunx convex import --prod "$EXPORT_FILE"
+    echo "   ✅ Data imported to PROD"
+    echo ""
+    
+    echo "7️⃣  Verifying crons are registered..."
     echo "   📋 Registered crons should appear in dashboard"
     echo "   Run 'just dashboard-prod' to verify"
     echo ""
@@ -114,18 +97,21 @@ migrate-prod:
     echo "📋 Summary:"
     echo "   • Type checks: ✅"
     echo "   • Code generated: ✅"
-    echo "   • Env vars migrated: $MIGRATED_COUNT"
+    echo "   • Env vars migrated: ✅"
+    echo "   • Data exported/imported: ✅"
     echo "   • Deployed to PROD: ✅"
     echo ""
     echo "🔍 Next steps:"
     echo "   1. Run: just dashboard-prod"
     echo "   2. Check 'Schedules' tab for crons"
     echo "   3. Run: just prod-test-notifications"
+    echo ""
+    echo "💾 Export file kept: $EXPORT_FILE"
+    echo "   Delete when no longer needed: rm $EXPORT_FILE"
 
-# Migrate only environment variables (no deploy)
+# Migrate only environment variables (no deploy, no data)
 migrate-env-only:
     #!/usr/bin/env bash
-    set -e
     echo "🛡️ Migrating Environment Variables: DEV → PROD"
     echo ""
     
@@ -140,10 +126,10 @@ migrate-env-only:
     MIGRATED_COUNT=0
     
     for VAR in "${ENV_VARS[@]}"; do
-        DEV_VALUE=$(bunx convex env get "$VAR" 2>/dev/null || echo "")
+        DEV_VALUE=$(bunx convex env get "$VAR" 2>/dev/null | tr -d '\n' || echo "")
         if [ -n "$DEV_VALUE" ]; then
             echo "📝 $VAR: DEV → PROD"
-            echo "$DEV_VALUE" | bunx convex env --prod set "$VAR" -
+            bunx convex env --prod set "$VAR" "$DEV_VALUE"
             ((MIGRATED_COUNT++))
         else
             echo "⚠️  $VAR: Not set in DEV, skipping"
@@ -152,6 +138,28 @@ migrate-env-only:
     
     echo ""
     echo "✅ Migrated $MIGRATED_COUNT environment variables"
+
+# Migrate only data (export dev, import prod) - requires deploy first
+migrate-data-only:
+    #!/usr/bin/env bash
+    set -e
+    echo "🛡️ Migrating Data: DEV → PROD"
+    echo ""
+    
+    EXPORT_FILE="convex-export-$(date +%Y%m%d-%H%M%S).zip"
+    
+    echo "📥 Exporting from DEV..."
+    bunx convex export --path "$EXPORT_FILE"
+    echo "   ✅ Exported: $EXPORT_FILE"
+    echo ""
+    
+    echo "📤 Importing to PROD..."
+    bunx convex import --prod "$EXPORT_FILE"
+    echo "   ✅ Imported to PROD"
+    echo ""
+    
+    echo "💾 Export file kept: $EXPORT_FILE"
+    echo "   Delete when no longer needed: rm $EXPORT_FILE"
 
 # Quick deploy to production (skip checks, no env migration)
 convex-deploy-quick:
@@ -250,6 +258,49 @@ crons-test-dev:
 
 crons-test-prod:
     bunx convex run --prod daily:scheduledMorningSync
+
+# ============================================
+# DATA MANAGEMENT
+# ============================================
+
+# Export all data from DEV
+export-dev:
+    #!/usr/bin/env bash
+    EXPORT_FILE="convex-export-$(date +%Y%m%d-%H%M%S).zip"
+    echo "📥 Exporting DEV data to $EXPORT_FILE..."
+    bunx convex export --path "$EXPORT_FILE"
+    echo "✅ Exported: $EXPORT_FILE"
+
+# Export all data from PROD
+export-prod:
+    #!/usr/bin/env bash
+    EXPORT_FILE="convex-export-prod-$(date +%Y%m%d-%H%M%S).zip"
+    echo "📥 Exporting PROD data to $EXPORT_FILE..."
+    bunx convex export --prod --path "$EXPORT_FILE"
+    echo "✅ Exported: $EXPORT_FILE"
+
+# Import data to DEV (be careful!)
+import-dev file:
+    #!/usr/bin/env bash
+    echo "⚠️  This will overwrite DEV data with {{file}}"
+    read -p "Are you sure? (yes/no): " confirm
+    if [ "$confirm" = "yes" ]; then
+        bunx convex import {{file}}
+    else
+        echo "Cancelled"
+    fi
+
+# Import data to PROD (be very careful!)
+import-prod file:
+    #!/usr/bin/env bash
+    echo "⚠️  ⚠️  ⚠️  THIS WILL OVERWRITE PRODUCTION DATA!"
+    echo "File: {{file}}"
+    read -p "Type 'PRODUCTION' to confirm: " confirm
+    if [ "$confirm" = "PRODUCTION" ]; then
+        bunx convex import --prod {{file}}
+    else
+        echo "Cancelled"
+    fi
 
 # ============================================
 # CONTAINERIZATION (Multi-Arch)
