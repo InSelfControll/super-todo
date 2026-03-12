@@ -536,15 +536,23 @@ export const eveningReport = internalAction({
 /**
  * 🕐 Schedule these functions in Convex Dashboard:
  * 
- * MORNING SYNC (8:00 AM UTC):
- *   - Function: daily:scheduledMorningSync
- *   - Schedule: Every day at 8:00 AM UTC
- *   - Cron: 0 8 * * *
- *   - Result: One message per IMPORTANT project
+ * JERUSALEM TIME (IST/IDT):
+ *   - Winter (Nov-Mar): UTC+2
+ *   - Summer (Mar-Oct): UTC+3
  * 
- * EVENING SYNC (6:00 PM UTC):
+ * MORNING SYNC - 8:00 AM Jerusalem:
+ *   - Winter: 6:00 AM UTC → Cron: 0 6 * * *
+ *   - Summer: 5:00 AM UTC → Cron: 0 5 * * *
+ *   - Function: daily:scheduledMorningSync
+ * 
+ * EVENING SYNC - 7:00 PM Jerusalem:
+ *   - Winter: 5:00 PM UTC → Cron: 0 17 * * *
+ *   - Summer: 4:00 PM UTC → Cron: 0 16 * * *
  *   - Function: daily:scheduledEveningSync
- *   - Schedule: Every day at 6:00 PM UTC
- *   - Cron: 0 18 * * *
- *   - Result: ONE combined message with ALL projects
+ * 
+ * RECOMMENDED (Winter Schedule):
+ *   Morning: 0 6 * * * (8 AM Jerusalem)
+ *   Evening: 0 17 * * * (7 PM Jerusalem)
+ * 
+ * NOTE: Adjust by 1 hour when daylight saving changes (Mar/Oct)
  */

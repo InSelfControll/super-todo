@@ -475,10 +475,13 @@ USER_TELEGRAM_ID=123456789              # For priority DMs
 
 In Convex Dashboard → **Schedules** → **New Schedule**:
 
-| Schedule | Function | Cron | Time (UTC) |
-|----------|----------|------|------------|
-| Morning | `daily:scheduledMorningSync` | `0 8 * * *` | 8:00 AM |
-| Evening | `daily:scheduledEveningSync` | `0 18 * * *` | 6:00 PM |
+| Schedule | Function | Cron | Jerusalem Time |
+|----------|----------|------|----------------|
+| Morning | `daily:scheduledMorningSync` | `0 6 * * *` | 8:00 AM |
+| Evening | `daily:scheduledEveningSync` | `0 17 * * *` | 7:00 PM |
+
+> 🌍 **Timezone Note:** Israel is UTC+2 (winter) / UTC+3 (summer). 
+> Adjust cron by 1 hour when daylight saving changes (March/October).
 
 ### 3. Test Notifications
 
