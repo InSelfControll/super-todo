@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "super-todo": {
+      "command": "npx",
+      "args": ["tsx", "/path/to/super-todo/src/index.ts"],
+      "env": {
+        "CONVEX_URL": "https://your-deployment.convex.cloud",
+        "DISCORD_WEBHOOK": "https://discord.com/api/webhooks/...",
+        "TELEGRAM_BOT_TOKEN": "your-bot-token",
+        "TELEGRAM_CHAT_ID": "your-chat-id"
+      }
+    }
+  }
+}

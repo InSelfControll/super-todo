@@ -1,0 +1,48 @@
+# 🛡️ Super Todo MCP - Docker Compose
+# A 1% improvement each time is a big win.
+
+version: "3.8"
+
+services:
+  super-todo:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: super-todo-mcp:latest
+    container_name: super-todo
+    env_file:
+      - .env
+    environment:
+      # Override or add additional env vars here
+      - NODE_ENV=production
+    restart: unless-stopped
+    # For MCP stdio transport, we don't expose ports
+    # But we can add healthcheck
+    healthcheck:
+      test: ["CMD", "bun", "--version"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    # For debugging/logging
+    stdin_open: true
+    tty: true
+    # Mount for development (optional)
+    # volumes:
+    #   - ./logs:/app/logs
+
+  # Optional: CLI service for running commands
+  sentinel-cli:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: cli
+    image: super-todo-mcp:latest
+    container_name: super-todo-cli
+    env_file:
+      - .env
+    profiles:
+      - cli
+    # Run a specific command, e.g.:
+    # docker-compose --profile cli run --rm sentinel-cli morning

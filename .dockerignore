@@ -1,0 +1,59 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment variables (should be passed via --env-file or -e)
+.env
+.env.local
+.env.*.local
+
+# Convex generated (will be regenerated)
+convex/_generated/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Testing
+coverage/
+.nyc_output/
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+README.md
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# Docker files (not needed in build context)
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Justfile
+justfile
+
+# Kimi
+.kimi/
+
+# Misc
+.cache/
+temp/
+tmp/

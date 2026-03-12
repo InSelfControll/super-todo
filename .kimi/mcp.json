@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "super-todo": {
+      "command": "bun",
+      "args": [
+        "/home/ofir/Desktop/things/github/private-todolist/src/index.ts"
+      ],
+      "env": {
+        "CONVEX_URL": "https://grand-sturgeon-25.eu-west-1.convex.cloud"
+      }
+    }
+  }
+}
