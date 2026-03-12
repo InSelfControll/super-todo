@@ -168,6 +168,55 @@ convex-deploy-quick:
     bunx convex deploy
 
 # ============================================
+# PROJECT MANAGEMENT - DUPLICATES
+# ============================================
+
+# Find duplicate projects (same name, different groups)
+find-duplicates:
+    #!/usr/bin/env bash
+    echo "🔍 Finding duplicate projects..."
+    echo ""
+    bunx convex run projects:findDuplicateProjects
+
+# Preview what auto-fix would do (dry run)
+fix-duplicates-preview:
+    #!/usr/bin/env bash
+    echo "🔍 Preview: Auto-fixing duplicate projects (dry run)..."
+    echo ""
+    bunx convex run projects:autoFixDuplicateProjects '{"dryRun": true}'
+
+# Auto-fix duplicate projects - keeps "important", archives "hobbies"
+fix-duplicates:
+    #!/usr/bin/env bash
+    echo "⚠️  This will merge duplicate projects!"
+    echo "   - Keeps the 'important' version"
+    echo "   - Migrates tasks from duplicates"
+    echo "   - Archives duplicate projects"
+    echo ""
+    read -p "Continue? (yes/no): " confirm
+    if [ "$confirm" = "yes" ]; then
+        echo ""
+        echo "🔧 Auto-fixing duplicate projects..."
+        bunx convex run projects:autoFixDuplicateProjects '{"dryRun": false}'
+    else
+        echo "Cancelled"
+    fi
+
+# Fix duplicates in production
+fix-duplicates-prod:
+    #!/usr/bin/env bash
+    echo "⚠️  ⚠️  ⚠️  THIS WILL MODIFY PRODUCTION DATA!"
+    echo ""
+    read -p "Type 'PRODUCTION' to confirm: " confirm
+    if [ "$confirm" = "PRODUCTION" ]; then
+        echo ""
+        echo "🔧 Auto-fixing duplicate projects in PROD..."
+        bunx convex run --prod projects:autoFixDuplicateProjects '{"dryRun": false}'
+    else
+        echo "Cancelled"
+    fi
+
+# ============================================
 # CONVEX - MONITORING & DEBUGGING
 # ============================================
 

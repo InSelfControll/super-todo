@@ -139,6 +139,174 @@ export const getImportantProjectCount = query({
 });
 
 // ============================================
+// DUPLICATE DETECTION & FIX
+// ============================================
+
+/**
+ * Find duplicate projects (same name, different groups)
+ * Returns groups of projects with the same name
+ */
+export const findDuplicateProjects = query({
+  args: {},
+  handler: async (ctx) => {
+    const allProjects = await ctx.db
+      .query("projects")
+      .withIndex("by_status", (q) => q.eq("status", "active"))
+      .collect();
+
+    // Group by normalized name
+    const byName = new Map<string, typeof allProjects>();
+    
+    for (const project of allProjects) {
+      const normalizedName = project.name.toLowerCase().trim();
+      if (!byName.has(normalizedName)) {
+        byName.set(normalizedName, []);
+      }
+      byName.get(normalizedName)!.push(project);
+    }
+
+    // Find duplicates (same name, multiple entries)
+    const duplicates = Array.from(byName.entries())
+      .filter(([_, projects]) => projects.length > 1)
+      .map(([name, projects]) => ({
+        normalizedName: name,
+        projects: projects.map((p) => ({
+          id: p._id,
+          name: p.name,
+          group: p.group,
+          isSubproject: p.isSubproject,
+          taskCount: 0, // Will be filled below
+        })),
+        count: projects.length,
+      }));
+
+    // Get task counts for each duplicate
+    for (const dup of duplicates) {
+      for (const proj of dup.projects) {
+        const tasks = await ctx.db
+          .query("tasks")
+          .withIndex("by_project", (q) => q.eq("projectId", proj.id))
+          .collect();
+        proj.taskCount = tasks.length;
+      }
+    }
+
+    return {
+      totalDuplicates: duplicates.length,
+      duplicates,
+    };
+  },
+});
+
+/**
+ * Merge duplicate projects - keeps the "important" one, migrates tasks, archives others
+ */
+export const mergeDuplicateProjects = mutation({
+  args: {
+    keepProjectId: v.id("projects"),
+    archiveProjectIds: v.array(v.id("projects")),
+  },
+  handler: async (ctx, args) => {
+    const keepProject = await ctx.db.get(args.keepProjectId);
+    if (!keepProject) {
+      throw new Error(`Keep project not found: ${args.keepProjectId}`);
+    }
+
+    let migratedTasks = 0;
+    let archivedProjects = 0;
+
+    for (const archiveId of args.archiveProjectIds) {
+      if (archiveId === args.keepProjectId) continue;
+
+      const archiveProject = await ctx.db.get(archiveId);
+      if (!archiveProject) continue;
+
+      // Migrate all tasks from archive project to keep project
+      const tasks = await ctx.db
+        .query("tasks")
+        .withIndex("by_project", (q) => q.eq("projectId", archiveId))
+        .collect();
+
+      for (const task of tasks) {
+        await ctx.db.patch(task._id, { projectId: args.keepProjectId });
+        migratedTasks++;
+      }
+
+      // Archive the duplicate project
+      await ctx.db.patch(archiveId, { status: "archived" });
+      archivedProjects++;
+    }
+
+    // Update lastWorkedOn on the kept project
+    await ctx.db.patch(args.keepProjectId, { lastWorkedOn: Date.now() });
+
+    return {
+      keptProject: {
+        id: keepProject._id,
+        name: keepProject.name,
+        group: keepProject.group,
+      },
+      archivedProjects,
+      migratedTasks,
+    };
+  },
+});
+
+/**
+ * Auto-fix all duplicate projects - keeps "important" over "hobbies"
+ */
+export const autoFixDuplicateProjects = mutation({
+  args: {
+    dryRun: v.optional(v.boolean()), // if true, only shows what would be done
+  },
+  handler: async (ctx, args) => {
+    const { duplicates } = await ctx.runQuery(
+      // @ts-ignore - internal query
+      "projects:findDuplicateProjects",
+      {}
+    );
+
+    const results = [];
+
+    for (const dup of duplicates) {
+      // Sort projects: important first, then by task count
+      const sorted = [...dup.projects].sort((a, b) => {
+        if (a.group === "important" && b.group !== "important") return -1;
+        if (a.group !== "important" && b.group === "important") return 1;
+        return b.taskCount - a.taskCount;
+      });
+
+      const keep = sorted[0];
+      const archive = sorted.slice(1);
+
+      if (args.dryRun) {
+        results.push({
+          action: "would_merge",
+          keep: { id: keep.id, name: keep.name, group: keep.group },
+          archive: archive.map((p) => ({ id: p.id, name: p.name, group: p.group })),
+          reason: `"${keep.name}" kept as ${keep.group} (${keep.taskCount} tasks)`,
+        });
+      } else {
+        const result = await ctx.runMutation("projects:mergeDuplicateProjects", {
+          keepProjectId: keep.id,
+          archiveProjectIds: archive.map((p) => p.id),
+        });
+        results.push({
+          action: "merged",
+          ...result,
+        });
+      }
+    }
+
+    return {
+      dryRun: args.dryRun ?? false,
+      fixed: results.length,
+      results,
+    };
+  },
+});
+
+// ============================================
 // MUTATIONS
 // ============================================
 
