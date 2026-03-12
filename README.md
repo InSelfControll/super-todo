@@ -637,6 +637,28 @@ just migrate-env-only     # Copy env vars only
 just migrate-data-only    # Copy data only (replaces existing)
 ```
 
+### Fix Duplicate Projects
+
+After migration, you may have duplicate projects (same name, different groups):
+
+```bash
+# Find duplicates
+just find-duplicates
+
+# Preview what auto-fix would do
+just fix-duplicates-preview
+
+# Fix duplicates (keeps project with most tasks, upgrades to important)
+just fix-duplicates        # DEV
+just fix-duplicates-prod   # PRODUCTION
+```
+
+The auto-fix will:
+- Keep the project with the most tasks
+- Upgrade it to "important" if any duplicate was important
+- Migrate all tasks from duplicates
+- Archive duplicate projects
+
 ## 🐛 Troubleshooting
 
 ### Cron Jobs Not Running
