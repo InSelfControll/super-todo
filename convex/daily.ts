@@ -121,10 +121,11 @@ export const getParentProjects = query({
 
 /**
  * Get completed tasks count for today across all projects
+ * Pass timestamp to bust cache
  */
 export const getCompletedTodayCount = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { timestamp: v.optional(v.number()) },
+  handler: async (ctx, args) => {
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
     const startOfDayTimestamp = startOfDay.getTime();
@@ -147,10 +148,12 @@ export const getCompletedTodayCount = query({
 
 /**
  * Get summary: ALL projects or filtered by group with their pending tasks
+ * Pass timestamp to bust cache
  */
 export const getEveningSummary = query({
   args: {
     group: v.optional(v.union(v.literal("important"), v.literal("hobbies"))),
+    timestamp: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     // Get parent projects (filtered by group if specified)
@@ -235,22 +238,32 @@ export const getEveningSummary = query({
 });
 
 // ============================================
+// CACHE BUSTING
+// ============================================
+// Queries are cached by default. To ensure fresh data in scheduled actions,
+// we pass a timestamp parameter that changes each run, effectively busting the cache.
+
+// ============================================
 // MORNING SYNC (8:00 AM) - IMPORTANT ONLY (ONE MESSAGE)
 // ============================================
 
 /**
  * Action: Morning sync - send ONE combined message with ALL IMPORTANT projects
+ * Uses timestamp to bust query cache and get fresh data
  */
 export const morningSyncAllImportant = internalAction({
   args: {},
   handler: async (ctx) => {
     console.log("🌅 Running morning sync - IMPORTANT projects summary...");
 
+    // Use timestamp to bust cache
+    const cacheBuster = Date.now();
+
     // Get summary of IMPORTANT projects with pending tasks
     const summary = await ctx.runQuery(
       // @ts-ignore - internal query
       "daily:getEveningSummary",
-      { group: "important" }
+      { group: "important", timestamp: cacheBuster }
     );
 
     const importantProjects = summary.projects;
@@ -261,7 +274,7 @@ export const morningSyncAllImportant = internalAction({
     }
 
     const totalImportantPending = importantProjects.reduce(
-      (sum: number, p: { totalPending: number }) => sum + p.totalPending,
+      (sum: number, p: any) => sum + p.totalPending,
       0
     );
 
@@ -320,24 +333,28 @@ export const morningSyncAllImportant = internalAction({
 /**
  * Action: Evening sync - send ONE combined message with ALL projects
  * Shows completed tasks today + pending tasks
+ * Uses timestamp to bust query cache and get fresh data
  */
 export const eveningSyncAllProjects = internalAction({
   args: {},
   handler: async (ctx) => {
     console.log("🌆 Running evening sync - combined summary...");
 
+    // Use timestamp to bust cache
+    const cacheBuster = Date.now();
+
     // Get completed tasks count for today
     const completedStats = await ctx.runQuery(
       // @ts-ignore - internal query
       "daily:getCompletedTodayCount",
-      {}
+      { timestamp: cacheBuster }
     );
 
     // Get summary of ALL projects with pending tasks
     const summary = await ctx.runQuery(
       // @ts-ignore - internal query
       "daily:getEveningSummary",
-      {} // No filter = all projects
+      { timestamp: cacheBuster }
     );
 
     // Build the combined message content
@@ -383,7 +400,7 @@ export const eveningSyncAllProjects = internalAction({
     content += `💪 *A 1% improvement each time is a big win.*`;
 
     // Send ONE combined notification
-    const hasImportant = summary.projects.some((p: { group: string }) => p.group === "important");
+    const hasImportant = summary.projects.some((p: any) => p.group === "important");
     const hasPending = summary.totalProjects > 0;
     
     const result = await ctx.runAction("notifications:broadcastNotification", {
