@@ -623,15 +623,18 @@ just import-dev export-file.zip
 just import-prod export-file.zip
 ```
 
+> ⚠️ **Note:** Import uses `--replace` mode which overwrites existing tables. This is intentional for full migration workflows.
+
 ### Data Migration Workflow
 
 ```bash
 # Full DEV → PROD migration (env vars + data)
+# ⚠️ This will REPLACE all PROD data with DEV data!
 just migrate-prod
 
 # Or step by step:
 just migrate-env-only     # Copy env vars only
-just migrate-data-only    # Copy data only
+just migrate-data-only    # Copy data only (replaces existing)
 ```
 
 ## 🐛 Troubleshooting
