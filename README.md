@@ -508,7 +508,7 @@ just test-notifications
 
 ### Automatic Migration (Recommended)
 
-One command to migrate everything from dev to production:
+One command to migrate **everything** from dev to production:
 
 ```bash
 just migrate-prod
@@ -517,39 +517,38 @@ just migrate-prod
 This will automatically:
 1. ✅ Run type checks
 2. ✅ Generate Convex code
-3. ✅ **Copy all environment variables from DEV to PROD**
-4. ✅ Deploy to production
-5. ✅ Verify crons are registered
+3. ✅ **Copy environment variables from DEV to PROD**
+4. ✅ **Export data from DEV**
+5. ✅ Deploy to production
+6. ✅ **Import data to PROD**
+7. ✅ Verify crons are registered
 
-### Manual Step-by-Step
+> ⚠️ **Warning:** This will overwrite PRODUCTION data with DEV data!
 
-If you prefer manual control:
+### Partial Migrations
+
+Migrate only specific parts:
 
 ```bash
-# 1. Copy only environment variables
+# Copy only environment variables
 just migrate-env-only
 
-# 2. Deploy to production
+# Copy only data (export dev, import prod)
+just migrate-data-only
+
+# Deploy without data/env migration
 just convex-deploy
-
-# 3. Verify env vars were copied
-just env-check-prod
-
-# 4. Test notifications
-just prod-test-notifications
 ```
 
 ### Environment Variables Copied
 
-The migration automatically copies these from DEV to PROD:
-
-| Variable | Purpose |
-|----------|---------|
-| `DISCORD_WEBHOOK` | Discord notifications |
-| `USER_DISCORD_ID` | Discord @mentions (optional) |
-| `BOT_TOKEN` | Telegram bot token |
-| `GROUP_ID` | Telegram group ID |
-| `USER_TELEGRAM_ID` | Telegram priority DMs (optional) |
+| Variable | Purpose | Required |
+|----------|---------|----------|
+| `DISCORD_WEBHOOK` | Discord notifications | ✅ |
+| `USER_DISCORD_ID` | Discord @mentions | ❌ |
+| `BOT_TOKEN` | Telegram bot token | ✅ |
+| `GROUP_ID` | Telegram group ID | ✅ |
+| `USER_TELEGRAM_ID` | Telegram priority DMs | ❌ |
 
 ### Verify Migration Success
 
@@ -559,6 +558,9 @@ just env-list-all
 
 # Check only PROD env vars
 just env-check-prod
+
+# Test notifications in production
+just prod-test-notifications
 
 # Open production dashboard
 just dashboard-prod
@@ -602,6 +604,35 @@ These must be set in Convex Dashboard → Settings → Environment Variables:
 > 💡 **Why two places?** The MCP server and CLI run locally and need `CONVEX_URL`. 
 > But scheduled notifications (morning/evening reports) run on Convex servers 
 > and read webhooks from the dashboard env vars.
+
+## 💾 Data Management
+
+### Export/Import Data
+
+```bash
+# Export DEV data
+just export-dev
+
+# Export PROD data (backup)
+just export-prod
+
+# Import data to DEV
+just import-dev export-file.zip
+
+# Import data to PROD (⚠️ overwrites production!)
+just import-prod export-file.zip
+```
+
+### Data Migration Workflow
+
+```bash
+# Full DEV → PROD migration (env vars + data)
+just migrate-prod
+
+# Or step by step:
+just migrate-env-only     # Copy env vars only
+just migrate-data-only    # Copy data only
+```
 
 ## 🐛 Troubleshooting
 
