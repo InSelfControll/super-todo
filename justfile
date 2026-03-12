@@ -47,10 +47,10 @@ convex-codegen:
     bunx convex codegen
 
 # ============================================
-# MIGRATION: DEV → PROD
+# MIGRATION: DEV → PROD (FULL AUTOMATIC)
 # ============================================
 
-# Full migration workflow from dev to production
+# Full automatic migration: dev → prod with env var copying
 migrate-prod:
     #!/usr/bin/env bash
     set -e
@@ -67,9 +67,36 @@ migrate-prod:
     echo "   ✅ Code generated"
     echo ""
     
-    echo "3️⃣  Testing notifications (manual run)..."
-    bunx convex run daily:scheduledMorningSync >/dev/null 2>&1 && echo "   ✅ Morning sync works" || echo "   ⚠️  Morning sync test failed"
-    bunx convex run daily:scheduledEveningSync >/dev/null 2>&1 && echo "   ✅ Evening sync works" || echo "   ⚠️  Evening sync test failed"
+    echo "3️⃣  Copying environment variables from DEV to PROD..."
+    echo "   Fetching DEV environment variables..."
+    
+    # List of critical env vars to migrate
+    ENV_VARS=(
+        "DISCORD_WEBHOOK"
+        "USER_DISCORD_ID"
+        "BOT_TOKEN"
+        "GROUP_ID"
+        "USER_TELEGRAM_ID"
+    )
+    
+    MIGRATED_COUNT=0
+    SKIPPED_COUNT=0
+    
+    for VAR in "${ENV_VARS[@]}"; do
+        DEV_VALUE=$(bunx convex env get "$VAR" 2>/dev/null || echo "")
+        if [ -n "$DEV_VALUE" ]; then
+            echo "   📝 Copying $VAR..."
+            echo "$DEV_VALUE" | bunx convex env --prod set "$VAR" -
+            ((MIGRATED_COUNT++))
+        else
+            echo "   ⚠️  $VAR not set in DEV, skipping"
+            ((SKIPPED_COUNT++))
+        fi
+    done
+    
+    echo ""
+    echo "   ✅ Migrated $MIGRATED_COUNT env vars to PROD"
+    echo "   ⚠️  Skipped $SKIPPED_COUNT env vars (not set in DEV)"
     echo ""
     
     echo "4️⃣  Deploying to production..."
@@ -77,26 +104,56 @@ migrate-prod:
     echo "   ✅ Deployed to production"
     echo ""
     
-    echo "5️⃣  Checking environment variables..."
-    echo "   Make sure these are set in PROD dashboard:"
-    echo "   • DISCORD_WEBHOOK"
-    echo "   • USER_DISCORD_ID (optional)"
-    echo "   • BOT_TOKEN"
-    echo "   • GROUP_ID"
-    echo "   • USER_TELEGRAM_ID (optional)"
+    echo "5️⃣  Verifying crons are registered..."
+    echo "   📋 Registered crons should appear in dashboard"
+    echo "   Run 'just dashboard-prod' to verify"
     echo ""
     
     echo "🎉 Migration complete!"
     echo ""
-    echo "📋 Next steps:"
-    echo "   1. Open Convex Dashboard: https://dashboard.convex.dev"
-    echo "   2. Select your PROD project"
-    echo "   3. Go to Settings → Environment Variables"
-    echo "   4. Add all required env vars"
-    echo "   5. Go to Schedules to verify crons are registered"
-    echo "   6. Run 'just convex-logs-prod' to monitor"
+    echo "📋 Summary:"
+    echo "   • Type checks: ✅"
+    echo "   • Code generated: ✅"
+    echo "   • Env vars migrated: $MIGRATED_COUNT"
+    echo "   • Deployed to PROD: ✅"
+    echo ""
+    echo "🔍 Next steps:"
+    echo "   1. Run: just dashboard-prod"
+    echo "   2. Check 'Schedules' tab for crons"
+    echo "   3. Run: just prod-test-notifications"
 
-# Quick deploy to production (skip checks)
+# Migrate only environment variables (no deploy)
+migrate-env-only:
+    #!/usr/bin/env bash
+    set -e
+    echo "🛡️ Migrating Environment Variables: DEV → PROD"
+    echo ""
+    
+    ENV_VARS=(
+        "DISCORD_WEBHOOK"
+        "USER_DISCORD_ID"
+        "BOT_TOKEN"
+        "GROUP_ID"
+        "USER_TELEGRAM_ID"
+    )
+    
+    MIGRATED_COUNT=0
+    
+    for VAR in "${ENV_VARS[@]}"; do
+        DEV_VALUE=$(bunx convex env get "$VAR" 2>/dev/null || echo "")
+        if [ -n "$DEV_VALUE" ]; then
+            echo "📝 $VAR: DEV → PROD"
+            echo "$DEV_VALUE" | bunx convex env --prod set "$VAR" -
+            ((MIGRATED_COUNT++))
+        else
+            echo "⚠️  $VAR: Not set in DEV, skipping"
+        fi
+    done
+    
+    echo ""
+    echo "✅ Migrated $MIGRATED_COUNT environment variables"
+
+# Quick deploy to production (skip checks, no env migration)
 convex-deploy-quick:
     bunx convex deploy
 
@@ -120,11 +177,38 @@ dashboard:
 dashboard-prod:
     bunx convex dashboard --prod
 
+# List all environment variables (dev vs prod comparison)
+env-list-all:
+    #!/usr/bin/env bash
+    echo "🛡️ Environment Variables Comparison"
+    echo ""
+    echo "📋 DEV Environment:"
+    bunx convex env list 2>/dev/null || echo "   (No env vars set or error)"
+    echo ""
+    echo "📋 PROD Environment:"
+    bunx convex env --prod list 2>/dev/null || echo "   (No env vars set or error)"
+
 # Check production environment variables
 env-check-prod:
-    bunx convex env --prod --get DISCORD_WEBHOOK 2>/dev/null && echo "✅ DISCORD_WEBHOOK set" || echo "❌ DISCORD_WEBHOOK missing"
-    bunx convex env --prod --get BOT_TOKEN 2>/dev/null && echo "✅ BOT_TOKEN set" || echo "❌ BOT_TOKEN missing"
-    bunx convex env --prod --get GROUP_ID 2>/dev/null && echo "✅ GROUP_ID set" || echo "❌ GROUP_ID missing"
+    #!/usr/bin/env bash
+    echo "🛡️ Checking PROD Environment Variables..."
+    echo ""
+    
+    ENV_VARS=(
+        "DISCORD_WEBHOOK"
+        "USER_DISCORD_ID"
+        "BOT_TOKEN"
+        "GROUP_ID"
+        "USER_TELEGRAM_ID"
+    )
+    
+    for VAR in "${ENV_VARS[@]}"; do
+        if bunx convex env --prod get "$VAR" >/dev/null 2>&1; then
+            echo "   ✅ $VAR: Set"
+        else
+            echo "   ❌ $VAR: Missing"
+        fi
+    done
 
 # Test notifications in production
 prod-test-morning:
