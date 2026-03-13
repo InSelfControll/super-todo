@@ -31,7 +31,7 @@ export const getProjectFamilyPendingTasks = query({
     const parentTasks = await ctx.db
       .query("inProgressTasks")
       .withIndex("by_project", (q) =>
-        q.eq("projectId", args.projectId).eq("completed", false)
+        q.eq("projectId", args.projectId)
       )
       .order("desc")
       .collect();
@@ -49,7 +49,7 @@ export const getProjectFamilyPendingTasks = query({
         const tasks = await ctx.db
           .query("inProgressTasks")
           .withIndex("by_project", (q) =>
-            q.eq("projectId", sub._id).eq("completed", false)
+            q.eq("projectId", sub._id)
           )
           .order("desc")
           .collect();
@@ -131,13 +131,11 @@ export const getCompletedTodayCount = query({
     const startOfDayTimestamp = startOfDay.getTime();
 
     const completedTasks = await ctx.db
-      .query("inProgressTasks")
-      .withIndex("by_completion", (q) => q.eq("completed", true))
+      .query("completedTasks")
+      .withIndex("by_completed", (q) => q.gte("completedAt", startOfDayTimestamp))
       .collect();
 
-    const todayCompleted = completedTasks.filter(
-      (t) => t.completedAt && t.completedAt >= startOfDayTimestamp
-    );
+    const todayCompleted = completedTasks;
 
     return {
       date: startOfDay.toISOString().split("T")[0],
@@ -176,7 +174,7 @@ export const getEveningSummary = query({
       const parentTasks = await ctx.db
         .query("inProgressTasks")
         .withIndex("by_project", (q) =>
-          q.eq("projectId", parent._id).eq("completed", false)
+          q.eq("projectId", parent._id)
         )
         .order("desc")
         .collect();
@@ -193,7 +191,7 @@ export const getEveningSummary = query({
         const tasks = await ctx.db
           .query("inProgressTasks")
           .withIndex("by_project", (q) =>
-            q.eq("projectId", sub._id).eq("completed", false)
+            q.eq("projectId", sub._id)
           )
           .order("desc")
           .collect();
@@ -209,17 +207,16 @@ export const getEveningSummary = query({
 
       const totalPending = parentTasks.length + subprojectData.reduce((sum, s) => sum + s.count, 0);
 
-      if (totalPending > 0) {
-        projectSummaries.push({
-          projectName: parent.name,
-          group: parent.group,
-          parentTasks: parentTasks.map((t) => t.text),
-          subprojects: subprojectData,
-          totalPending,
-          hasSubprojects: subprojects.length > 0,
-        });
-        grandTotalPending += totalPending;
-      }
+      // Show ALL projects (even with 0 pending tasks)
+      projectSummaries.push({
+        projectName: parent.name,
+        group: parent.group,
+        parentTasks: parentTasks.map((t) => t.text),
+        subprojects: subprojectData,
+        totalPending,
+        hasSubprojects: subprojects.length > 0,
+      });
+      grandTotalPending += totalPending;
     }
 
     // Sort: Important first, then by pending count
@@ -278,50 +275,61 @@ export const morningSyncAllImportant = internalAction({
       0
     );
 
-    // Build the combined message content
-    let content = `🌅 **Morning Sync - Important Projects**\n`;
-    content += `📊 **Total Pending:** ${totalImportantPending} tasks across ${importantProjects.length} important projects\n\n`;
-    content += `═══════════════════════════════\n\n`;
+    // Send header message first
+    const headerContent = `🌅 **Morning Sync - Important Projects**\n📊 **Total Pending:** ${totalImportantPending} tasks across ${importantProjects.length} important projects`;
+    
+    await ctx.runAction("notifications:broadcastNotification", {
+      content: headerContent,
+      mentionUser: true,
+      highPriority: true,
+      pinMessage: true,
+    });
 
-    for (const proj of importantProjects) {
-      content += `🔴 **${proj.projectName}**`;
+    // Send each project as a separate message
+    const results = [];
+    for (let i = 0; i < importantProjects.length; i++) {
+      const proj = importantProjects[i];
+      
+      // Build project-specific message
+      let content = `🔴 **${proj.projectName}**`;
       if (proj.hasSubprojects) {
         content += ` (with subprojects)`;
       }
-      content += ` - ${proj.totalPending} tasks\n`;
+      content += ` - ${proj.totalPending} tasks\n\n`;
 
-      // Parent tasks
+      // Parent tasks - show all
       for (const task of proj.parentTasks) {
         content += `  • ${task}\n`;
       }
 
-      // Subproject tasks with prefix
+      // Subproject tasks with prefix - show all
       for (const sub of proj.subprojects) {
         for (const task of sub.tasks) {
           content += `  • [${sub.name}] ${task}\n`;
         }
       }
 
-      content += `\n`;
+      // Send this project's message
+      const result = await ctx.runAction("notifications:broadcastNotification", {
+        content,
+        mentionUser: i === 0, // Only mention on first project
+        highPriority: true,
+        pinMessage: false,
+      });
+      results.push(result);
+
+      // Wait 5 seconds between messages (except after the last one)
+      if (i < importantProjects.length - 1) {
+        await sleep(5000);
+      }
     }
 
-    content += `═══════════════════════════════\n`;
-    content += `💪 *A 1% improvement each time is a big win.*`;
-
-    // Send ONE combined notification
-    const result = await ctx.runAction("notifications:broadcastNotification", {
-      content,
-      mentionUser: true, // Always mention for morning important
-      highPriority: true,
-      pinMessage: true, // Pin morning important messages
-    });
-
-    console.log(`Morning sync completed: ${importantProjects.length} important projects in one message`);
+    console.log(`Morning sync completed: ${importantProjects.length} important projects in ${results.length} messages`);
     return {
       notified: true,
       projectsCount: importantProjects.length,
       grandTotalPending: totalImportantPending,
-      result,
+      results,
     };
   },
 });
@@ -357,66 +365,71 @@ export const eveningSyncAllProjects = internalAction({
       { timestamp: cacheBuster }
     );
 
-    // Build the combined message content
-    let content = `🌆 **Evening Sync**\n`;
-    content += `✅ **Completed Today:** ${completedStats.totalCompleted} tasks\n`;
-    
+    // Send header message first
+    let headerContent = `🌆 **Evening Sync**\n`;
+    headerContent += `✅ **Completed Today:** ${completedStats.totalCompleted} tasks\n`;
     if (summary.totalProjects > 0) {
-      content += `📊 **Pending:** ${summary.grandTotalPending} tasks across ${summary.totalProjects} projects\n`;
+      headerContent += `📊 **Pending:** ${summary.grandTotalPending} tasks across ${summary.totalProjects} projects\n`;
     }
-    
-    content += `\n`;
 
-    // Only show pending tasks section if there are any
-    if (summary.totalProjects > 0) {
-      content += `═══════════════════════════════\n\n`;
 
-      for (const proj of summary.projects) {
-        const groupEmoji = proj.group === "important" ? "🔴" : "🔵";
-        content += `${groupEmoji} **${proj.projectName}**`;
-        if (proj.hasSubprojects) {
-          content += ` (with subprojects)`;
-        }
-        content += ` - ${proj.totalPending} tasks\n`;
-
-        // Parent tasks
-        for (const task of proj.parentTasks) {
-          content += `  • ${task}\n`;
-        }
-
-        // Subproject tasks with prefix
-        for (const sub of proj.subprojects) {
-          for (const task of sub.tasks) {
-            content += `  • [${sub.name}] ${task}\n`;
-          }
-        }
-
-        content += `\n`;
-      }
-
-      content += `═══════════════════════════════\n`;
-    }
-    
-    content += `💪 *A 1% improvement each time is a big win.*`;
-
-    // Send ONE combined notification
     const hasImportant = summary.projects.some((p: any) => p.group === "important");
     const hasPending = summary.totalProjects > 0;
     
-    const result = await ctx.runAction("notifications:broadcastNotification", {
-      content,
-      mentionUser: hasImportant && hasPending, // Only mention if important AND pending
+    await ctx.runAction("notifications:broadcastNotification", {
+      content: headerContent,
+      mentionUser: hasImportant && hasPending,
       highPriority: hasImportant && hasPending,
-      pinMessage: false, // Don't pin evening messages
+      pinMessage: false,
     });
 
-    console.log(`Evening sync completed: ${completedStats.totalCompleted} completed, ${summary.grandTotalPending} pending`);
+    // Send each project as a separate message
+    const results = [];
+    for (let i = 0; i < summary.projects.length; i++) {
+      const proj = summary.projects[i];
+      const groupEmoji = proj.group === "important" ? "🔴" : "🔵";
+      
+      // Build project-specific message
+      let content = `${groupEmoji} **${proj.projectName}**`;
+      if (proj.hasSubprojects) {
+        content += ` (with subprojects)`;
+      }
+      content += ` - ${proj.totalPending} tasks\n\n`;
+
+      // Parent tasks - show all
+      for (const task of proj.parentTasks) {
+        content += `  • ${task}\n`;
+      }
+
+      // Subproject tasks with prefix - show all
+      for (const sub of proj.subprojects) {
+        for (const task of sub.tasks) {
+          content += `  • [${sub.name}] ${task}\n`;
+        }
+      }
+
+      // Send this project's message
+      const result = await ctx.runAction("notifications:broadcastNotification", {
+        content,
+        mentionUser: false, // Don't mention on individual project messages
+        highPriority: false,
+        pinMessage: false,
+      });
+      results.push(result);
+
+      // Wait 5 seconds between messages (except after the last one)
+      if (i < summary.projects.length - 1) {
+        await sleep(5000);
+      }
+    }
+
+    console.log(`Evening sync completed: ${completedStats.totalCompleted} completed, ${summary.grandTotalPending} pending in ${results.length} messages`);
     return {
       notified: true,
       completedToday: completedStats.totalCompleted,
       projectsCount: summary.totalProjects,
       grandTotalPending: summary.grandTotalPending,
-      result,
+      results,
     };
   },
 });
@@ -529,13 +542,11 @@ export const getEveningReport = query({
       .collect();
 
     const completedTasks = await ctx.db
-      .query("inProgressTasks")
-      .withIndex("by_completion", (q) => q.eq("completed", true))
+      .query("completedTasks")
+      .withIndex("by_completed", (q) => q.gte("completedAt", startOfDayTimestamp))
       .collect();
 
-    const todayCompletions = completedTasks.filter(
-      (t) => t.completedAt && t.completedAt >= startOfDayTimestamp
-    );
+    const todayCompletions = completedTasks;
 
     const byProject = new Map();
     for (const task of todayCompletions) {
@@ -612,6 +623,6 @@ export const eveningReport = internalAction({
  * RECOMMENDED (Winter Schedule):
  *   Morning: 0 6 * * * (8 AM Jerusalem)
  *   Evening: 0 17 * * * (7 PM Jerusalem)
- * 
+
  * NOTE: Adjust by 1 hour when daylight saving changes (Mar/Oct)
  */

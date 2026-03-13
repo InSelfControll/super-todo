@@ -526,7 +526,7 @@ export const reactivateProject = mutation({
 });
 
 /**
- * Permanently delete a project and all its tasks
+ * Permanently delete a project and all its tasks (inProgress + completed)
  * Also deletes all subprojects and their tasks if parent
  */
 export const deleteProject = mutation({
@@ -544,7 +544,8 @@ export const deleteProject = mutation({
       throw new Error(`Project not found: ${args.projectId}`);
     }
 
-    let deletedTasks = 0;
+    let deletedInProgressTasks = 0;
+    let deletedCompletedTasks = 0;
     let deletedSubprojects = 0;
 
     // If this is a parent project, delete all subprojects and their tasks
@@ -555,15 +556,24 @@ export const deleteProject = mutation({
         .collect();
 
       for (const sub of subprojects) {
-        // Delete all tasks for this subproject
+        // Delete all inProgressTasks for this subproject
         const subTasks = await ctx.db
           .query("inProgressTasks")
           .withIndex("by_project", (q) => q.eq("projectId", sub._id))
           .collect();
-        
         for (const task of subTasks) {
           await ctx.db.delete(task._id);
-          deletedTasks++;
+          deletedInProgressTasks++;
+        }
+
+        // Delete all completedTasks for this subproject
+        const subCompleted = await ctx.db
+          .query("completedTasks")
+          .withIndex("by_project", (q) => q.eq("projectId", sub._id))
+          .collect();
+        for (const task of subCompleted) {
+          await ctx.db.delete(task._id);
+          deletedCompletedTasks++;
         }
 
         // Delete the subproject
@@ -572,15 +582,24 @@ export const deleteProject = mutation({
       }
     }
 
-    // Delete all tasks for this project
+    // Delete all inProgressTasks for this project
     const tasks = await ctx.db
       .query("inProgressTasks")
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
       .collect();
-    
     for (const task of tasks) {
       await ctx.db.delete(task._id);
-      deletedTasks++;
+      deletedInProgressTasks++;
+    }
+
+    // Delete all completedTasks for this project
+    const completed = await ctx.db
+      .query("completedTasks")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    for (const task of completed) {
+      await ctx.db.delete(task._id);
+      deletedCompletedTasks++;
     }
 
     // Delete the project itself
@@ -592,9 +611,155 @@ export const deleteProject = mutation({
         name: project.name,
         wasSubproject: project.isSubproject,
       },
-      deletedTasks,
+      deletedInProgressTasks,
+      deletedCompletedTasks,
       deletedSubprojects,
-      totalDeleted: 1 + deletedSubprojects + deletedTasks,
+      totalDeleted: 1 + deletedSubprojects + deletedInProgressTasks + deletedCompletedTasks,
+    };
+  },
+});
+
+/**
+ * Delete ALL inProgressTasks across all projects (NUKE option)
+ * Use with extreme caution!
+ */
+export const deleteAllInProgressTasks = mutation({
+  args: {
+    confirm: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    if (!args.confirm) {
+      throw new Error("Must set confirm: true to delete ALL inProgressTasks");
+    }
+
+    const allTasks = await ctx.db.query("inProgressTasks").collect();
+    let deleted = 0;
+
+    for (const task of allTasks) {
+      await ctx.db.delete(task._id);
+      deleted++;
+    }
+
+    return {
+      deletedTasks: deleted,
+      message: `Deleted ${deleted} tasks from inProgressTasks`,
+    };
+  },
+});
+
+/**
+ * Find and remove duplicate tasks within inProgressTasks table
+ * (same text for the same project)
+ */
+export const removeDuplicateTasks = mutation({
+  args: {
+    dryRun: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const allTasks = await ctx.db.query("inProgressTasks").collect();
+    
+    // Group by projectId + text (normalized)
+    const taskGroups = new Map<string, typeof allTasks>();
+    
+    for (const task of allTasks) {
+      const key = `${task.projectId}:${task.text.toLowerCase().trim()}`;
+      if (!taskGroups.has(key)) {
+        taskGroups.set(key, []);
+      }
+      taskGroups.get(key)!.push(task);
+    }
+    
+    // Find duplicates (same project, same text)
+    const duplicates: Array<{
+      projectId: string;
+      text: string;
+      count: number;
+      keepId: string;
+      deletedIds: string[];
+    }> = [];
+    
+    let deletedCount = 0;
+    
+    for (const [key, tasks] of taskGroups.entries()) {
+      if (tasks.length > 1) {
+        const [projectId, text] = key.split(":", 2);
+        // Keep the first one, delete the rest
+        const [keep, ...toDelete] = tasks;
+        
+        duplicates.push({
+          projectId,
+          text: text.substring(0, 50),
+          count: tasks.length,
+          keepId: keep._id,
+          deletedIds: toDelete.map(t => t._id),
+        });
+        
+        if (!args.dryRun) {
+          for (const task of toDelete) {
+            await ctx.db.delete(task._id);
+            deletedCount++;
+          }
+        }
+      }
+    }
+    
+    return {
+      dryRun: args.dryRun ?? false,
+      totalDuplicates: duplicates.length,
+      deletedCount,
+      duplicates: duplicates.slice(0, 10), // Limit output
+    };
+  },
+});
+
+/**
+ * Delete all inProgressTasks for a specific project (keep the project)
+ */
+export const deleteProjectTasks = mutation({
+  args: {
+    projectId: v.id("projects"),
+    confirm: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    if (!args.confirm) {
+      throw new Error("Must set confirm: true to delete project tasks");
+    }
+
+    const project = await ctx.db.get(args.projectId);
+    if (!project) {
+      throw new Error(`Project not found: ${args.projectId}`);
+    }
+
+    let deletedInProgress = 0;
+    let deletedCompleted = 0;
+
+    // Delete inProgressTasks for this project
+    const tasks = await ctx.db
+      .query("inProgressTasks")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    for (const task of tasks) {
+      await ctx.db.delete(task._id);
+      deletedInProgress++;
+    }
+
+    // Delete completedTasks for this project (optional - but let's clean everything)
+    const completed = await ctx.db
+      .query("completedTasks")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    for (const task of completed) {
+      await ctx.db.delete(task._id);
+      deletedCompleted++;
+    }
+
+    return {
+      projectId: args.projectId,
+      projectName: project.name,
+      deletedInProgressTasks: deletedInProgress,
+      deletedCompletedTasks: deletedCompleted,
+      totalDeleted: deletedInProgress + deletedCompleted,
+      message: `Deleted ${deletedInProgress} pending + ${deletedCompleted} completed tasks from "${project.name}"`,
     };
   },
 });
@@ -618,7 +783,7 @@ export const getProjectTree = query({
     const parentTasks = await ctx.db
       .query("inProgressTasks")
       .withIndex("by_project", (q) =>
-        q.eq("projectId", args.projectId).eq("completed", false)
+        q.eq("projectId", args.projectId)
       )
       .collect();
 
@@ -627,7 +792,7 @@ export const getProjectTree = query({
         const tasks = await ctx.db
           .query("inProgressTasks")
           .withIndex("by_project", (q) =>
-            q.eq("projectId", sub._id).eq("completed", false)
+            q.eq("projectId", sub._id)
           )
           .collect();
         return {

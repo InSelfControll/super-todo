@@ -492,6 +492,80 @@ async function handleTool(name: ToolName, args: unknown): Promise<unknown> {
       };
     }
 
+    case "remove_project": {
+      const { projectId, confirm } = args as { projectId: string; confirm?: boolean };
+      
+      if (!confirm) {
+        const project = await convexClient.getProject(projectId);
+        const tasks = await convexClient.getTasks(projectId, "all");
+        return {
+          requires_confirmation: true,
+          warning: "⚠️ PERMANENT DELETION",
+          message: `This will PERMANENTLY DELETE project "${project?.name || projectId}" and ALL its tasks!`,
+          projectId,
+          projectName: project?.name,
+          stats: {
+            pendingTasks: tasks.filter(t => !t.completed).length,
+            completedTasks: tasks.filter(t => t.completed).length,
+            totalTasks: tasks.length
+          },
+          action: "Set confirm: true to permanently delete this project and all its tasks."
+        };
+      }
+
+      const result = await convexClient.deleteProject(projectId);
+      return {
+        success: true,
+        message: "🗑️ Project permanently deleted",
+        deleted: result,
+        note: "This action cannot be undone."
+      };
+    }
+
+    case "clear_project_tasks": {
+      const { projectId, confirm } = args as { projectId: string; confirm?: boolean };
+      
+      if (!confirm) {
+        const project = await convexClient.getProject(projectId);
+        const tasks = await convexClient.getTasks(projectId, "all");
+        return {
+          requires_confirmation: true,
+          warning: "⚠️ DELETE ALL TASKS",
+          message: `This will DELETE ALL TASKS from project "${project?.name || projectId}". The project will remain.`,
+          projectId,
+          projectName: project?.name,
+          stats: {
+            pendingTasks: tasks.filter(t => !t.completed).length,
+            completedTasks: tasks.filter(t => t.completed).length,
+            totalTasks: tasks.length
+          },
+          action: "Set confirm: true to delete all tasks from this project."
+        };
+      }
+
+      const result = await convexClient.deleteProjectTasks(projectId);
+      return {
+        success: true,
+        message: "🧹 All tasks deleted from project",
+        deleted: result,
+        note: "Project still exists but has no tasks now."
+      };
+    }
+
+    case "remove_duplicate_tasks": {
+      const { dryRun = true } = args as { dryRun?: boolean };
+      const result = await convexClient.removeDuplicateTasks(dryRun);
+      return {
+        success: true,
+        message: dryRun ? "🔍 Dry run - found duplicates" : "🧹 Duplicates removed",
+        dryRun,
+        duplicates: result.duplicates,
+        totalDuplicates: result.totalDuplicates,
+        deletedCount: result.deletedCount,
+        note: dryRun ? "Set dryRun: false to actually remove duplicates" : "Duplicates have been removed."
+      };
+    }
+
     // ============================================
     // TASK TOOLS
     // ============================================

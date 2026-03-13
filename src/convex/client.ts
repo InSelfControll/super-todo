@@ -172,6 +172,52 @@ export class ConvexClient {
     return this.mutation("projects:archiveProject", { projectId: projectId as Id<"projects"> });
   }
 
+  async deleteProject(projectId: string): Promise<{ 
+    deletedProject: { id: Id<"projects">; name: string; wasSubproject: boolean }; 
+    deletedInProgressTasks: number;
+    deletedCompletedTasks: number;
+    deletedSubprojects: number;
+    totalDeleted: number;
+  }> {
+    return this.mutation("projects:deleteProject", { 
+      projectId: projectId as Id<"projects">,
+      confirm: true 
+    });
+  }
+
+  async deleteProjectTasks(projectId: string): Promise<{
+    projectId: Id<"projects">;
+    projectName: string;
+    deletedInProgressTasks: number;
+    deletedCompletedTasks: number;
+    totalDeleted: number;
+    message: string;
+  }> {
+    return this.mutation("projects:deleteProjectTasks", { 
+      projectId: projectId as Id<"projects">,
+      confirm: true 
+    });
+  }
+
+  async removeDuplicateTasks(dryRun: boolean = true): Promise<{
+    dryRun: boolean;
+    totalDuplicates: number;
+    deletedCount: number;
+    duplicates: Array<{
+      projectId: string;
+      text: string;
+      count: number;
+      keepId: string;
+      deletedIds: string[];
+    }>;
+  }> {
+    return this.mutation("projects:removeDuplicateTasks", { dryRun });
+  }
+
+  async getProject(projectId: string): Promise<Project | null> {
+    return this.query("projects:getProject", { projectId: projectId as Id<"projects"> });
+  }
+
   // ============================================
   // TASK METHODS
   // ============================================

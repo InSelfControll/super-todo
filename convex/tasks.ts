@@ -9,6 +9,20 @@ import { v } from "convex/values";
  * - completedTasks: Completed tasks (moved here on completion)
  */
 
+export const rawCount = query({
+  args: {},
+  handler: async (ctx: any) => {
+    const inProgress = await ctx.db.query("inProgressTasks").collect();
+    let oldTasks: any[] = [];
+    try { oldTasks = await ctx.db.query("tasks").collect(); } catch (e) {}
+    return { 
+      inProgress: inProgress.length, 
+      oldTasks: oldTasks.length,
+      oldPending: oldTasks.filter((t: any) => !t.completed).length,
+    };
+  },
+});
+
 // ============================================
 // QUERIES - IN PROGRESS TASKS
 // ============================================

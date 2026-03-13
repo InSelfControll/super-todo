@@ -96,7 +96,8 @@ export const sendTelegramNotification = internalAction({
   },
   handler: async (_ctx, args) => {
     const botToken = getEnv("BOT_TOKEN");
-    const groupId = getEnv("GROUP_ID");
+    // TELEGRAM_CHAT_ID takes precedence over GROUP_ID
+    const chatId = getEnv("TELEGRAM_CHAT_ID") || getEnv("GROUP_ID");
     const userId = getEnv("USER_TELEGRAM_ID");
 
     if (!botToken) {
@@ -104,47 +105,60 @@ export const sendTelegramNotification = internalAction({
       return { sent: false, reason: "bot_token_missing" };
     }
 
+    if (!chatId) {
+      console.log("⚠️ Neither TELEGRAM_CHAT_ID nor GROUP_ID configured");
+      return { sent: false, reason: "chat_id_missing" };
+    }
+
     const results = [];
 
-    // 1. Send to group (if configured) - high priority mode
-    if (groupId) {
+    // 1. Send to chat (if configured) - high priority mode
+    if (chatId) {
       try {
         const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+        
+        console.log(`📨 Sending Telegram message to chat_id: ${chatId}`);
         
         const response = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            chat_id: groupId,
+            chat_id: chatId,
             text: args.content,
             parse_mode: "Markdown",
-            disable_notification: false, // Always notify (bypasses mute if pinned)
+            disable_notification: false,
             disable_web_page_preview: true,
           }),
         });
 
         if (response.ok) {
           const data = await response.json();
-          results.push({ platform: "telegram_group", sent: true, messageId: data.result?.message_id });
+          console.log(`✅ Telegram message sent: ${data.result?.message_id}`);
+          results.push({ platform: "telegram", sent: true, messageId: data.result?.message_id });
 
           // Pin message for high priority
           if (args.highPriority && args.pinMessage && data.result?.message_id) {
-            await fetch(`https://api.telegram.org/bot${botToken}/pinChatMessage`, {
+            const pinResponse = await fetch(`https://api.telegram.org/bot${botToken}/pinChatMessage`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                chat_id: groupId,
+                chat_id: chatId,
                 message_id: data.result.message_id,
-                disable_notification: false, // Notify on pin
+                disable_notification: false,
               }),
             });
+            if (!pinResponse.ok) {
+              console.log(`⚠️ Failed to pin message: ${await pinResponse.text()}`);
+            }
           }
         } else {
           const error = await response.text();
-          results.push({ platform: "telegram_group", sent: false, error });
+          console.log(`❌ Telegram send failed: ${error}`);
+          results.push({ platform: "telegram", sent: false, error });
         }
       } catch (error) {
-        results.push({ platform: "telegram_group", sent: false, error: String(error) });
+        console.log(`❌ Telegram exception: ${String(error)}`);
+        results.push({ platform: "telegram", sent: false, error: String(error) });
       }
     }
 
@@ -152,6 +166,8 @@ export const sendTelegramNotification = internalAction({
     if (userId && args.highPriority) {
       try {
         const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+        
+        console.log(`📨 Sending direct Telegram message to user: ${userId}`);
         
         const response = await fetch(url, {
           method: "POST",
@@ -165,18 +181,24 @@ export const sendTelegramNotification = internalAction({
         });
 
         if (response.ok) {
+          console.log(`✅ Telegram direct message sent`);
           results.push({ platform: "telegram_direct", sent: true });
         } else {
           const error = await response.text();
+          console.log(`❌ Telegram direct message failed: ${error}`);
           results.push({ platform: "telegram_direct", sent: false, error });
         }
       } catch (error) {
+        console.log(`❌ Telegram direct exception: ${String(error)}`);
         results.push({ platform: "telegram_direct", sent: false, error: String(error) });
       }
     }
 
+    const anySent = results.some((r) => r.sent);
+    console.log(`📊 Telegram results: ${results.length} attempts, ${anySent ? 'SUCCESS' : 'FAILED'}`);
+    
     return {
-      sent: results.some((r) => r.sent),
+      sent: anySent,
       results,
     };
   },
@@ -432,8 +454,9 @@ export const testNotifications = internalAction({
         discord: !!getEnv("DISCORD_WEBHOOK"),
         discordUserId: !!getEnv("USER_DISCORD_ID"),
         telegramBot: !!getEnv("BOT_TOKEN"),
-        telegramGroup: !!getEnv("GROUP_ID"),
-        telegramUser: !!getEnv("USER_TELEGRAM_ID"),
+        telegramChatId: !!getEnv("TELEGRAM_CHAT_ID"),
+        telegramGroupId: !!getEnv("GROUP_ID"),
+        telegramUserId: !!getEnv("USER_TELEGRAM_ID"),
       },
     };
   },

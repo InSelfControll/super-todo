@@ -81,6 +81,55 @@ export const tools = [
     }
   },
   {
+    name: "remove_project",
+    description: "PERMANENTLY DELETE a project and ALL its tasks (both pending and completed). This action CANNOT be undone!",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        projectId: {
+          type: "string",
+          description: "ID of the project to permanently delete"
+        },
+        confirm: {
+          type: "boolean",
+          description: "Set to true to confirm permanent deletion"
+        }
+      },
+      required: ["projectId"]
+    }
+  },
+  {
+    name: "clear_project_tasks",
+    description: "Delete ALL tasks (pending and completed) for a specific project. The project itself remains. This action CANNOT be undone!",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        projectId: {
+          type: "string",
+          description: "ID of the project whose tasks will be deleted"
+        },
+        confirm: {
+          type: "boolean",
+          description: "Set to true to confirm deletion of all tasks"
+        }
+      },
+      required: ["projectId"]
+    }
+  },
+  {
+    name: "remove_duplicate_tasks",
+    description: "Find and remove duplicate tasks (same text for same project) from inProgressTasks table. Keeps one copy of each duplicate.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        dryRun: {
+          type: "boolean",
+          description: "If true, only show duplicates without deleting them"
+        }
+      }
+    }
+  },
+  {
     name: "get_tasks",
     description: "Get tasks for a project with filtering. Shows pending, completed, or all tasks.",
     inputSchema: {
@@ -276,6 +325,9 @@ export type ToolName =
   | "add_project"
   | "detect_project_context"
   | "archive_project"
+  | "remove_project"
+  | "clear_project_tasks"
+  | "remove_duplicate_tasks"
   | "get_tasks"
   | "add_task"
   | "complete_task"

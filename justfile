@@ -176,14 +176,14 @@ find-duplicates:
     #!/usr/bin/env bash
     echo "🔍 Finding duplicate projects..."
     echo ""
-    bunx convex run projects:findDuplicateProjects
+    bunx convex run --prod projects:findDuplicateProjects
 
 # Preview what auto-fix would do (dry run)
 fix-duplicates-preview:
     #!/usr/bin/env bash
     echo "🔍 Preview: Auto-fixing duplicate projects (dry run)..."
     echo ""
-    bunx convex run projects:autoFixDuplicateProjects '{"dryRun": true}'
+    bunx convex run --prod projects:autoFixDuplicateProjects '{"dryRun": true}'
 
 # Auto-fix duplicate projects - keeps "important", archives "hobbies"
 fix-duplicates:
@@ -197,7 +197,7 @@ fix-duplicates:
     if [ "$confirm" = "yes" ]; then
         echo ""
         echo "🔧 Auto-fixing duplicate projects..."
-        bunx convex run projects:autoFixDuplicateProjects '{"dryRun": false}'
+        bunx convex run --prod projects:autoFixDuplicateProjects '{"dryRun": false}'
     else
         echo "Cancelled"
     fi
@@ -231,7 +231,7 @@ delete-project-dev project-id:
     if [ "$confirm" = "DELETE" ]; then
         echo ""
         echo "🗑️  Deleting project and all related tasks..."
-        bunx convex run projects:deleteProject '{"projectId": "{{project-id}}", "confirm": true}'
+        bunx convex run --prod projects:deleteProject '{"projectId": "{{project-id}}", "confirm": true}'
     else
         echo "Cancelled"
     fi
@@ -340,11 +340,19 @@ crons-verify:
     echo "   2. Click 'Schedules' in left sidebar"
     echo "   3. Look for: morningSync, eveningSync"
 
-crons-test-dev:
-    bunx convex run daily:scheduledMorningSync
-
-crons-test-prod:
+# Test cron jobs (PROD - default)
+crons-test-morning:
     bunx convex run --prod daily:scheduledMorningSync
+
+crons-test-evening:
+    bunx convex run --prod daily:scheduledEveningSync
+
+# Manual sync commands (PROD)
+sync-evening:
+    bunx convex run --prod daily:eveningSyncAllProjects
+
+sync-morning:
+    bunx convex run --prod daily:morningSyncAllImportant
 
 # ============================================
 # DATA MANAGEMENT
@@ -493,4 +501,22 @@ test:
 
 # Test all notifications channels
 test-notifications:
-    bunx convex run notifications:testNotifications
+    bunx convex run --prod notifications:testNotifications
+
+# ⚠️ DELETE ALL inProgressTasks (DANGER - use with caution!)
+delete-all-tasks:
+    @echo "⚠️  WARNING: This will permanently delete ALL pending tasks!"
+    @read -p "Type 'yes' to confirm: " confirm && [ "$confirm" = "yes" ] && bunx convex run --prod projects:deleteAllInProgressTasks '{"confirm": true}' || echo "Cancelled"
+
+# Delete all tasks from a specific project (keep the project)
+# Usage: just clear-project-tasks PROJECT_ID
+clear-project-tasks PROJECT_ID:
+    bunx convex run --prod projects:deleteProjectTasks '{"projectId": "{{PROJECT_ID}}", "confirm": true}'
+
+# Find and remove duplicate tasks in inProgressTasks
+# Usage: just remove-duplicates
+de-dupe:
+    @echo "🔍 Finding duplicates (dry run)..."
+    bunx convex run --prod projects:removeDuplicateTasks '{"dryRun": true}'
+    @echo ""
+    @read -p "Remove these duplicates? Type 'yes': " confirm && [ "$confirm" = "yes" ] && bunx convex run --prod projects:removeDuplicateTasks '{"dryRun": false}' || echo "Cancelled"
